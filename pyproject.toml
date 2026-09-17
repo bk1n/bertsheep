@@ -1,0 +1,25 @@
+[project]
+name = "bertsheep"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ben King", email = "75484578+bk1n@users.noreply.github.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "dotenv>=0.9.9",
+    "ipykernel>=7.3.0",
+    "numpy>=2.5.3",
+    "pandas>=3.0.5",
+    "python-dotenv>=1.2.3",
+    "rdkit>=2026.3.6",
+    "scikit-learn>=1.9.1",
+]
+
+[project.scripts]
+bertsheep = "bertsheep:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
