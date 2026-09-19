@@ -3,7 +3,7 @@ Bi-directional encoder representations from transformers (BERT) for binding affi
 
 Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on binding affinity of compounds to a single target and evaluates generalisation performance.
 
-We select the top five most profiled _kinase_ targets from [bindingDB](https://www.bindingdb.org/).
+We are interested in the most profiled kinase target in [bindingDB](https://www.bindingdb.org/): EGFR.
 
 ## Question 1
 
@@ -21,34 +21,36 @@ We select the top five most profiled _kinase_ targets from [bindingDB](https://w
 
 Hypothesis: if the model is simply re-learning rough scaffolds, then fine-tuning will not alter the layers substantially.
 
-1. How do the **embedding** layers differ between pre-trained and fine-tuned models?
-2. How do the **attention** layers differ between pre-trained and fine-tuned models?
+How do the **embedding** layers differ between pre-trained and fine-tuned models?
 
 ## Setup
 
-### Models
+### Model
 
-Baseline: XGBoost on molecular fingerprints\
-Pre-trained: [DeepChem/ChemBERTa-10M-MTR](https://huggingface.co/DeepChem/ChemBERTa-10M-MTR)\
-Fine-tuned: [DeepChem/ChemBERTa-10M-MTR](https://huggingface.co/DeepChem/ChemBERTa-10M-MTR) + bindingDB
-
-### Cross-validation
-
-Inner loop: Optuna w/ TPESampler\
-Outer loop: Evaluation w/ held-out eval set  
-
-In-distribution: stratified train/test/eval splits by scaffolds, ensuring equal representation of scaffolds between them; repeated $s$ times.\
-Out-of-distribution: train/test/eval leave-one-out-scaffold split for each $s$
-
-Where $s$ is the number of scaffolds.
+Model: [DeepChem/ChemBERTa-10M-MTR](https://huggingface.co/DeepChem/ChemBERTa-10M-MTR)
 
 ### Splitting Strategies
 
-For both tests, we define "scaffolds" in two ways:
-1. Bemis-Murcko scaffolds (less stringent; https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html#scaffoldsplitter)
-2. Butina-split clusters (more stringent; https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html#butinasplitter)
+For both tests, we split compounds in three ways:
+1. Bemis-Murcko scaffolds (less stringent)
+2. Butina-split clusters (more stringent)
+3. Fingerprint splitting (most stringent) 
 
-Scaffolds 
+See [here](https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html#scaffoldsplitter) for more detail.
+
+### Cross-validation
+
+Due to computational limitations (this is trained locally on an RTX 4060), we will sample run Optuna w/ TPESampler once per seed, optimising hyperparameters on train + test data, with held-out evaluation set, and share these hyperparameters across runs.
+
+In-distribution: 
+1. For Bemis-Murcko and Burtina splits, we use stratified splitting by "scaffolds" to ensure equal representation of scaffolds.
+2. For fingerprint splitting, we iteratively build splits with compounds that maximise the Tanimoto similarity between groups.
+
+Out-of-distribution: 
+1. BM & Burtina: group shuffled splits ensures some scaffolds are held-out.
+2. Fingerprint: minimise Tanimoto similarity.
+
+All experiments are repeated 30 times.
 
 ## Figures
 ### Question 1
