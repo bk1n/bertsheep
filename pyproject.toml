@@ -10,11 +10,15 @@ requires-python = ">=3.14"
 dependencies = [
     "dotenv>=0.9.9",
     "ipykernel>=7.3.0",
+    "matplotlib>=3.11.2",
     "numpy>=2.5.3",
     "pandas>=3.0.5",
     "python-dotenv>=1.2.3",
     "rdkit>=2026.3.6",
     "scikit-learn>=1.9.1",
+    "torch>=2.14.0",
+    "transformers>=5.17.0",
+    "umap-learn>=0.5.12",
 ]
 
 [project.scripts]
@@ -23,3 +27,19 @@ bertsheep = "bertsheep:main"
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+# The default PyPI torch wheel is built against CUDA 13.0; the WSL driver here
+# provides 12.8, so torch comes from the cu126 index instead (CUDA minor-version
+# compatibility covers 12.6 -> 12.8). Drop this once the Windows driver is newer.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126" }]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
