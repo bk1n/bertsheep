@@ -6,17 +6,24 @@ not do yet, at the level of "what needs building", not how.
 ## Before any real run
 
 - [ ] Run `benchmark.py` on the real EGFR frame — seconds/epoch and peak VRAM on the 4060 decide the Optuna trial budget and whether cloud compute is needed
+    - [ ] benchmark.py: add benchmark of train loss vs test loss w/ autocast on + off (are speed up improvements costing performance)
 - [x] data.py: 
     - [x] add parquet caching of data_path target data frames; if fetched again, use parquet rather than loading full CSV; save to out/.cache/
     - [x] add mutation argument to filter frame by mutation; use "wildtype" as wildtype arg; post-caching to parquet
-- [ ] eda.py: on the preprocessed EGFR frame — label distribution, scaffold/Butina cluster sizes, singleton fraction, realised split ratios
+- [x] eda.py: on the preprocessed EGFR frame — label distribution, scaffold/Butina cluster sizes, singleton fraction, realised split ratios
     - [x] Fix eda.py; update to latest splitting methods
-    - [ ] Read `MIN_CLUSTER_SIZE` (eda.py, = 10) off the split figures and pick it deliberately — the dropped share is drawn on them now, and benchmark.py hardcodes its own copy of the same number
-    - [ ] Open EDA questions:
-        - [ ] do we group mutations together or stratify analyses by mutation?
+    - [x] Read `MIN_CLUSTER_SIZE` (eda.py, = 10) off the split figures and pick it deliberately — the dropped share is drawn on them now, and benchmark.py hardcodes its own copy of the same number
+    - [x] Open EDA questions:
+        - [x] do we group mutations together or stratify analyses by mutation?
 - [x] Ensure appropriate epoch-level logging of necessary elements: per epoch states (to fetch embeddings later), losses, etc.
     - [x] model.py: Build method to get embedding from the .pt model state_dict's weights
-    - [ ] Attention maps for Q2 are not stored; recompute from checkpoints (`output_attentions=True`) when the RSA/UMAP work needs them
+    - [x] Attention maps for Q2 are not stored; recompute from checkpoints (`output_attentions=True`) when the RSA/UMAP work needs them
+- [ ] model.py
+    - [ ] Implement Optuna hyperparameter optimisation w/ TPESampler
+- [ ] experiment.py
+    - [ ] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
+    - [ ] add tests to ensure methods output consistently everytime
+    - [ ] implement a suite of experiments that answer questions in README.md
 
 ## Question 1 — does fine-tuning help?
 
