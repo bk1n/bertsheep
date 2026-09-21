@@ -18,15 +18,9 @@ ROWS = np.arange(len(SMILES))
 
 TRAIN_SIZE = 0.7
 TEST_SIZE = 0.15
-# The fingerprint split deals one molecule at a time, so it lands on the size
-# asked for to within a molecule. A cluster split can only land to within a
-# cluster: 'out' moves whole clusters, and 'in' quantises the ratio into folds.
-MOLECULE_TOLERANCE = 1 / len(SMILES)
+# A cluster split can only land on the size asked for to within a cluster:
+# 'out' moves whole clusters, and 'in' quantises the ratio into folds.
 CLUSTER_TOLERANCE = CLUSTER_SIZE / len(SMILES)
-# Random splits to read the fingerprint deal against: 'out' has to put the test
-# set further from train than chance does, and 'in' closer.
-RANDOM_REPLICATES = 20
-RANDOM_SEED = 0
 
 
 def splitter(method: str, distribution: str = "in", seed: int = 11) -> Splitters:
@@ -74,15 +68,9 @@ def distribution(request) -> str:
     return request.param
 
 
-@pytest.fixture(params=["scaffold", "butina", "fingerprint"])
+@pytest.fixture(params=["scaffold", "butina"])
 def method(request) -> str:
     """Every split method, for the contracts they all share."""
-    return request.param
-
-
-@pytest.fixture(params=["scaffold", "fingerprint"])
-def structural_method(request) -> str:
-    """The two methods a scaffold assertion can be made against."""
     return request.param
 
 
@@ -91,7 +79,7 @@ def nearest_train_distance(distances: np.ndarray, train: np.ndarray,
     """
     Mean Tanimoto distance from a test molecule to the closest training
     molecule: how far the test set sits from what the model has seen, which is
-    the quantity a fingerprint split exists to push up or down.
+    the quantity an out-of-distribution split exists to push up.
 
     Parameters
     ----------
@@ -111,98 +99,35 @@ def nearest_train_distance(distances: np.ndarray, train: np.ndarray,
     return distances[np.ix_(test, train)].min(axis=1).mean()
 
 
-def chance_distance(distances: np.ndarray) -> float:
-    """
-    The same distance for a random split of the same size, averaged over
-    replicates: the baseline both fingerprint distributions are read against,
-    since a split that is no further from train than chance has not done
-    anything.
-
-    Parameters
-    ----------
-    distances : np.ndarray
-        (n, n) Tanimoto distance matrix over all molecules.
-
-    Returns
-    -------
-    float
-        Mean nearest-train distance over RANDOM_REPLICATES random splits.
-    """
-    rng = np.random.default_rng(RANDOM_SEED)
-    cut = round(len(SMILES) * TRAIN_SIZE)
-    shuffles = (rng.permutation(len(SMILES)) for _ in range(RANDOM_REPLICATES))
-    return np.mean([nearest_train_distance(distances, s[:cut], s[cut:])
-                    for s in shuffles])
-
-
 def test_two_way_split_is_a_partition(method: str, distribution: str) -> None:
     """Any method, either distribution: every molecule lands in exactly one side."""
-    train, test = splitter(method, distribution)._cut(ROWS, TRAIN_SIZE)
+    train, test = splitter(method, distribution)._cluster_split(ROWS, TRAIN_SIZE)
     assert sorted(np.concatenate([train, test]).tolist()) == list(range(len(SMILES)))
-
-
-def test_fingerprint_split_lands_on_the_requested_size(distribution: str) -> None:
-    """Dealing by quota hits train_size to within one molecule."""
-    train, _ = splitter("fingerprint", distribution)._cut(ROWS, TRAIN_SIZE)
-    assert len(train) / len(SMILES) == pytest.approx(TRAIN_SIZE, abs=MOLECULE_TOLERANCE)
 
 
 def test_cluster_split_lands_on_the_requested_size(distribution: str) -> None:
     """A cluster split hits train_size to within one cluster, clusters being indivisible."""
-    train, _ = splitter("scaffold", distribution)._cut(ROWS, TRAIN_SIZE)
+    train, _ = splitter("scaffold", distribution)._cluster_split(ROWS, TRAIN_SIZE)
     assert len(train) / len(SMILES) == pytest.approx(TRAIN_SIZE, abs=CLUSTER_TOLERANCE)
 
 
-def test_fingerprint_split_out_is_further_from_train_than_chance(
-    distances: np.ndarray
-) -> None:
-    """'out' deals the least similar molecule away, so its test set beats a random one."""
-    train, test = splitter("fingerprint", "out")._cut(ROWS, TRAIN_SIZE)
-    assert nearest_train_distance(distances, train, test) > chance_distance(distances)
-
-
-def test_fingerprint_split_in_is_closer_to_train_than_chance(
-    distances: np.ndarray
-) -> None:
-    """'in' deals the most similar molecule away, so its test set sits inside train's space."""
-    train, test = splitter("fingerprint", "in")._cut(ROWS, TRAIN_SIZE)
-    assert nearest_train_distance(distances, train, test) < chance_distance(distances)
-
-
-def test_fingerprint_split_out_is_further_than_in(distances: np.ndarray) -> None:
-    """The two distributions bracket chance: 'out' is the hard split, 'in' the easy one."""
-    apart = splitter("fingerprint", "out")._cut(ROWS, TRAIN_SIZE)
-    together = splitter("fingerprint", "in")._cut(ROWS, TRAIN_SIZE)
-    assert (nearest_train_distance(distances, *apart)
-            > nearest_train_distance(distances, *together))
-
-
-def test_out_keeps_scaffolds_whole(structural_method: str,
-                                   clusters: np.ndarray) -> None:
+def test_out_keeps_scaffolds_whole(clusters: np.ndarray) -> None:
     """No test scaffold appears in train at all, which is the point of the 'out' split."""
-    train, test = splitter(structural_method, "out")._cut(ROWS, TRAIN_SIZE)
+    train, test = splitter("scaffold", "out")._cluster_split(ROWS, TRAIN_SIZE)
     assert not set(clusters[test]) & set(clusters[train])
 
 
-def test_in_shares_its_scaffolds_with_train(structural_method: str,
-                                            clusters: np.ndarray) -> None:
+def test_in_shares_its_scaffolds_with_train(clusters: np.ndarray) -> None:
     """Every test scaffold is one train has seen, which is the point of the 'in' split."""
-    train, test = splitter(structural_method, "in")._cut(ROWS, TRAIN_SIZE)
+    train, test = splitter("scaffold", "in")._cluster_split(ROWS, TRAIN_SIZE)
     assert set(clusters[test]) <= set(clusters[train])
 
 
 def test_cluster_split_is_seeded(distribution: str) -> None:
     """Two seeds give two splits, so a replicate is a new seed rather than a new method."""
-    first = splitter("scaffold", distribution, seed=1)._cut(ROWS, TRAIN_SIZE)[1]
-    second = splitter("scaffold", distribution, seed=2)._cut(ROWS, TRAIN_SIZE)[1]
+    first = splitter("scaffold", distribution, seed=1)._cluster_split(ROWS, TRAIN_SIZE)[1]
+    second = splitter("scaffold", distribution, seed=2)._cluster_split(ROWS, TRAIN_SIZE)[1]
     assert not np.array_equal(first, second)
-
-
-def test_fingerprint_split_is_deterministic(distribution: str) -> None:
-    """The deal ignores the seed: same molecules in, same split out."""
-    first = splitter("fingerprint", distribution, seed=1)._cut(ROWS, TRAIN_SIZE)[1]
-    second = splitter("fingerprint", distribution, seed=2)._cut(ROWS, TRAIN_SIZE)[1]
-    assert np.array_equal(first, second)
 
 
 def test_three_way_split_is_a_partition(method: str, distribution: str) -> None:
@@ -227,10 +152,10 @@ def test_three_way_out_puts_each_cluster_in_one_split(clusters: np.ndarray) -> N
 
 
 def test_three_way_in_keeps_test_and_valid_clusters_in_train(
-    structural_method: str, clusters: np.ndarray
+    clusters: np.ndarray
 ) -> None:
-    """Neither held-out set brings a scaffold train has not seen, under either method."""
-    train, test, valid = splitter(structural_method, "in").split()
+    """Neither held-out set brings a scaffold train has not seen."""
+    train, test, valid = splitter("scaffold", "in").split()
     assert set(clusters[test]) <= set(clusters[train])
     assert set(clusters[valid]) <= set(clusters[train])
 
@@ -263,7 +188,30 @@ def test_min_cluster_size_drops_small_clusters_from_every_split() -> None:
     assert len(kept) == len(SMILES)
 
 
-def test_min_cluster_size_needs_clusters() -> None:
-    """The fingerprint split has no clusters to measure, so a cut-off is refused."""
-    with pytest.raises(ValueError, match="needs clusters"):
-        Splitters(SMILES, "fingerprint", min_cluster_size=2)
+def test_out_is_further_from_train_than_in(method: str,
+                                           distances: np.ndarray) -> None:
+    """
+    Whatever the molecules are grouped by, holding whole groups out leaves the
+    test set further from train than interleaving them does. This is what the
+    two distributions are for, measured rather than assumed.
+    """
+    apart = splitter(method, "out")._cluster_split(ROWS, TRAIN_SIZE)
+    together = splitter(method, "in")._cluster_split(ROWS, TRAIN_SIZE)
+    assert (nearest_train_distance(distances, *apart)
+            > nearest_train_distance(distances, *together))
+
+
+def test_supplied_distances_give_the_same_split(distances: np.ndarray) -> None:
+    """Handing in the matrix is an optimisation, so it cannot change the answer."""
+    supplied = Splitters(SMILES, "butina", "out", distances=distances).split()
+    computed = Splitters(SMILES, "butina", "out").split()
+    assert all(np.array_equal(a, b) for a, b in zip(supplied, computed))
+
+
+def test_distances_must_cover_the_molecules() -> None:
+    """
+    A matrix over some other set of molecules would cluster those instead and
+    return indices that silently mean nothing here, so the shape is checked.
+    """
+    with pytest.raises(ValueError, match="it must cover these molecules"):
+        Splitters(SMILES, "butina", distances=np.zeros((len(SMILES) - 1,) * 2))

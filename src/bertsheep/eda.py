@@ -1,7 +1,8 @@
-from functools import cache, cached_property
+from functools import cached_property
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import umap as umap_
 from matplotlib.cm import ScalarMappable
@@ -9,7 +10,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.patches import Patch
 
 from bertsheep.chemistry import BUTINA_CUTOFF, Chemist
-from bertsheep.splitters import SPLIT_SEED, TEST_SPLIT, TRAIN_SPLIT
+from bertsheep.splitters import DISTRIBUTIONS, SPLIT_SEED, Splitters
 
 FIGURE_DIR = Path("out/eda")
 UMAP_NEIGHBOURS = 15
@@ -23,9 +24,11 @@ TOP_VARIANTS = 30
 TOP_CLUSTERS = 40  # same palette ceiling as TOP_SCAFFOLDS
 # Tanimoto distances swept, tight to loose; BUTINA_CUTOFF sits inside the range.
 BUTINA_CUTOFFS = (0.2, 0.3, 0.4, 0.5, 0.6)
-# Where a framework stops being one-off chemistry and starts being a series a
-# split can hold out as a block.
-MIN_SCAFFOLD_SIZE = 10
+# Where a group stops being one-off chemistry and starts being a series a split
+# can hold out as a block. Molecules below it are in no split at all, so this is
+# the figure that says whether the threshold is throwing away a region of
+# chemical space or just the scattered singletons it is meant to.
+MIN_CLUSTER_SIZE = 10
 POINT_SIZE = 5
 POINT_ALPHA = 0.2
 GREY = "lightgrey"
@@ -37,11 +40,15 @@ BOX_COLOUR = "tab:blue"
 DPI = 300
 BOX_FIGSIZE = (12, 6)
 # The label column is -ln(IC50 in nM); every figure names the axis the same way.
-LABEL_AXIS = "log IC50 (nM)"
+LABEL_AXIS = "-ln IC50 (nM)"
 # Seeds per row of the split figures: enough to see which structure the split
 # repeats and which is luck of the draw.
 SPLIT_REPLICATES = 3
-SPLIT_COLOURS = {"train": GREY, "valid": "tab:blue", "test": "tab:red"}
+# Keyed in the order the titles and the legend read. DROPPED is the ligands
+# MIN_CLUSTER_SIZE leaves out of every split, not a fourth split.
+DROPPED = "dropped"
+SPLIT_COLOURS = {"train": GREY, "test": "tab:red", "valid": "tab:blue",
+                 DROPPED: "tab:orange"}
 SPLIT_FIGSIZE = (15, 9)
 OTHER = "other"
 WILD_TYPE = "wild type"
@@ -55,6 +62,11 @@ class Eda():
         self.target = target
         self.figure_dir = Path(figure_dir)
         self.figure_dir.mkdir(parents=True, exist_ok=True)
+        # Butina results per cutoff. Instance dicts rather than functools.cache,
+        # which keys on self in a module-global and would keep every Eda ever
+        # built -- and the distance matrix each one holds -- alive for the
+        # process, which is what fills memory in a notebook.
+        self._ligand_butina, self._butina = {}, {}
 
     @cached_property
     def scaffolds(self):
@@ -118,28 +130,52 @@ class Eda():
         chemist = Chemist()
         return chemist.pairwise_tanimoto(chemist.fingerprints(self.ligands["smiles"]))
 
-    @cache
-    def ligand_butina(self, cutoff=BUTINA_CUTOFF):
+    def ligand_butina(self, cutoff: float = BUTINA_CUTOFF) -> pd.Series:
         """
         Butina cluster per unique ligand. Clustered over molecules, not rows: a
         ligand measured against three constructs would otherwise be three points
         at distance zero, a ready-made cluster Butina would happily centre on.
         Named rather than numbered so they behave like scaffold SMILES as
         categories and tick labels.
-        
-        cutoff: butina cutoff, controls number of clusters generated
-        """
-        clusters = Chemist().butina_clusters(self.distances, cutoff=cutoff)
-        return pd.Series(clusters, index=self.ligands.index).map("cluster {}".format)
 
-    @cache
-    def butina(self, cutoff=BUTINA_CUTOFF):
+        Parameters
+        ----------
+        cutoff : float
+            Tanimoto distance within which molecules are neighbours; controls
+            how many clusters come out.
+
+        Returns
+        -------
+        pd.Series
+            Cluster name per unique ligand, indexed as `ligands`.
+        """
+        if cutoff not in self._ligand_butina:
+            clusters = Chemist().butina_clusters(self.distances, cutoff=cutoff)
+            self._ligand_butina[cutoff] = pd.Series(
+                clusters, index=self.ligands.index
+            ).map("cluster {}".format)
+        return self._ligand_butina[cutoff]
+
+    def butina(self, cutoff: float = BUTINA_CUTOFF) -> pd.Series:
         """
         Butina cluster per row, for the figures that count measurements the way
         the scaffold ones do.
+
+        Parameters
+        ----------
+        cutoff : float
+            Tanimoto distance within which molecules are neighbours.
+
+        Returns
+        -------
+        pd.Series
+            Cluster name per row, indexed as `df`.
         """
-        lookup = pd.Series(self.ligand_butina(cutoff).values, index=self.ligands["smiles"])
-        return self.df["smiles"].map(lookup)
+        if cutoff not in self._butina:
+            lookup = pd.Series(self.ligand_butina(cutoff).values,
+                               index=self.ligands["smiles"])
+            self._butina[cutoff] = self.df["smiles"].map(lookup)
+        return self._butina[cutoff]
 
     @cached_property
     def embedding(self):
@@ -295,23 +331,49 @@ class Eda():
             ax, column, len(self.embedding), f"coloured by {LABEL_AXIS}",
         )
 
-    def _umap_splits(self, groups, name, noun):
+    def _umap_splits(self, method: str, name: str, noun: str) -> np.ndarray:
         """
         The map coloured by where each ligand lands, in-distribution on top and
         out-of-distribution below, one seed per column. What the two rows should
         show: in-distribution test points scattered through every island, with
         train alongside them; out-of-distribution test points arriving as whole
         islands that train never touches.
+
+        Ligands whose group is smaller than MIN_CLUSTER_SIZE belong to no split
+        and get their own colour. They are drawn rather than hidden because the
+        threshold is only defensible if what it removes is the scattered one-off
+        chemistry it is aimed at, and not a whole region of the map.
+
+        Parameters
+        ----------
+        method : str
+            Grouping the split is built on, one of Splitters' SPLIT_METHODS.
+        name : str
+            Slug for the figure filename.
+        noun : str
+            What the method groups by, named in the title.
+
+        Returns
+        -------
+        np.ndarray
+            The (2, SPLIT_REPLICATES) grid of axes.
         """
-        chemist = Chemist()
+        # Butina reclusters inside every splitter and the distance matrix is
+        # nearly all of that cost, so the one Eda already holds over exactly
+        # these ligands is handed over instead of being rebuilt per panel.
+        distances = self.distances if method == "butina" else None
         fig, axes = plt.subplots(2, SPLIT_REPLICATES, figsize=SPLIT_FIGSIZE,
                                  sharex=True, sharey=True)
-        for row, stratify in zip(axes, (True, False)):
+        for row, distribution in zip(axes, DISTRIBUTIONS):
             for ax, seed in zip(row, range(SPLIT_SEED, SPLIT_SEED + SPLIT_REPLICATES)):
-                indices = chemist.split_groups(groups, TRAIN_SPLIT, TEST_SPLIT,
-                                               seed=seed, stratify=stratify)
-                assigned = pd.Series(pd.NA, index=self.embedding.index, dtype=object)
-                for split, index in zip(SPLIT_COLOURS, indices):
+                splitter = Splitters(
+                    self.ligands["smiles"], method, distribution, seed=seed,
+                    min_cluster_size=MIN_CLUSTER_SIZE, distances=distances,
+                )
+                # split() deals train, test, valid in that order; zipping
+                # against SPLIT_COLOURS instead would swap the two held-out sets.
+                assigned = pd.Series(DROPPED, index=self.embedding.index)
+                for split, index in zip(("train", "test", "valid"), splitter.split()):
                     assigned.iloc[index] = split
                 # Drawn in a random order, not split by split: a set drawn last
                 # covers the others wherever they overlap, and an in-distribution
@@ -320,9 +382,9 @@ class Eda():
                 ax.scatter(points["umap1"], points["umap2"], s=POINT_SIZE,
                            alpha=POINT_ALPHA,
                            c=assigned.loc[points.index].map(SPLIT_COLOURS))
+                shares = assigned.value_counts(normalize=True)
                 ax.set_title(f"seed {seed}: " + " / ".join(
-                    f"{split} {len(index) / len(groups):.0%}"
-                    for split, index in zip(SPLIT_COLOURS, indices)
+                    f"{split} {shares.get(split, 0):.0%}" for split in SPLIT_COLOURS
                 ), fontsize="small")
         axes[0, 0].set_ylabel("in-distribution (stratified by group)\nUMAP 2")
         axes[1, 0].set_ylabel("out-of-distribution (whole groups held out)\nUMAP 2")
@@ -332,27 +394,39 @@ class Eda():
                             for split, colour in SPLIT_COLOURS.items()],
                    loc="upper right")
         fig.suptitle(f"{self.target} {noun} splits over chemical space "
-                     f"(ECFP4 UMAP, n={len(groups)} unique ligands)")
+                     f"(ECFP4 UMAP, n={len(self.ligands)} unique ligands)")
         fig.savefig(self.figure_dir / f"{self.target}_umap_splits_{name}.png",
                     bbox_inches="tight", dpi=DPI)
         return axes
 
-    def umap_scaffold_splits(self):
+    def umap_scaffold_splits(self) -> np.ndarray:
         """
         Scaffold splits on the shared map. Singleton scaffolds are most of the
-        groups, so the out-of-distribution test set is mostly one-off chemistry
-        and can still sit right beside its training analogues.
-        """
-        return self._umap_splits(self.ligand_scaffolds, "scaffold", "Bemis-Murcko scaffold")
+        groups, so MIN_CLUSTER_SIZE removes a large share of the ligands here,
+        and what is left for an out-of-distribution test set is the handful of
+        series big enough to hold out as blocks.
 
-    def umap_butina_splits(self, cutoff=BUTINA_CUTOFF):
+        Returns
+        -------
+        np.ndarray
+            The (2, SPLIT_REPLICATES) grid of axes.
+        """
+        return self._umap_splits("scaffold", "scaffold", "Bemis-Murcko scaffold")
+
+    def umap_butina_splits(self) -> np.ndarray:
         """
         Butina splits on the shared map -- the stricter counterpart, since a
         cluster takes a ligand's near analogues out with it whatever their
-        scaffold.
+        scaffold. Splitters clusters at Chemist's own BUTINA_CUTOFF, so unlike
+        the other Butina figures this one has no cutoff to sweep.
+
+        Returns
+        -------
+        np.ndarray
+            The (2, SPLIT_REPLICATES) grid of axes.
         """
-        return self._umap_splits(self.ligand_butina(cutoff), f"butina_{cutoff:.2f}",
-                                 f"Butina {cutoff} cluster")
+        return self._umap_splits("butina", f"butina_{BUTINA_CUTOFF:.2f}",
+                                 f"Butina {BUTINA_CUTOFF} cluster")
 
     def _grouped_boxplot(self, groups, name, n_groups, column, labelsize):
         """

@@ -1,3 +1,4 @@
+import random
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,11 @@ NO_DECAY = ("bias", "LayerNorm.weight")
 MIN_DELTA = 0.0  # improvement in test loss that resets early stopping
 LOG_EVERY = 5  # batches between training-loss lines
 
+# Default run seed. A replicate is a new seed here as well as on the splitter:
+# without it, head initialisation and batch order vary run to run and their
+# spread is indistinguishable from the spread across splits.
+MODEL_SEED = 0
+
 LOSS_FN = torch.nn.MSELoss
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # bf16 rather than fp16: it keeps fp32's exponent range, so no loss scaling.
@@ -60,6 +66,11 @@ class Model():
         every Model instead of rebuilding it per trial. Its indices are
         positional into the SMILES it was built from, so `df` has to be that
         frame, in that order.
+    seed : int
+        Seed for head initialisation, dropout and batch order. Independent of
+        the splitter's seed so the split can be held fixed while the model is
+        resampled, or the reverse, which is what separates variance due to the
+        chemistry held out from variance due to the fit.
     reinit_n : int
         Number of top encoder layers to re-initialise before fine-tuning.
     model_link : str
@@ -93,6 +104,7 @@ class Model():
         df: pd.DataFrame,
         target: str,
         splitter: Splitters,
+        seed: int = MODEL_SEED,
         reinit_n: int = 0,
         model_link: str = "DeepChem/ChemBERTa-10M-MTR",
         lr: float = 6.9e-5,
@@ -106,6 +118,9 @@ class Model():
         logging.set_verbosity_error()
         self.target = target
         self.splitter = splitter
+        self.seed = seed
+        # Before the network exists, so the head's initialisation is seeded too.
+        self.generator = self._seed(seed)
         self.reinit_n = reinit_n
         self.model_link = model_link
         self.lr = lr
@@ -241,6 +256,32 @@ class Model():
         train, test, valid = (df.iloc[index] for index in self.splitter.split())
         return train, test, valid
 
+    def _seed(self, seed: int) -> torch.Generator:
+        """
+        Seed every generator a run draws on -- Python, numpy and torch on both
+        devices -- and return the one the training DataLoader shuffles with.
+
+        This makes a run repeatable without forcing deterministic kernels,
+        which cost throughput and raise on ops that have no deterministic
+        implementation. cuDNN is still free to autotune, so two runs of the
+        same seed on GPU can differ in the last decimal places.
+
+        Parameters
+        ----------
+        seed : int
+            Seed applied to every generator.
+
+        Returns
+        -------
+        torch.Generator
+            Generator for the training DataLoader's shuffle.
+        """
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        return torch.Generator().manual_seed(seed)
+
     def _dataloader(self, frame: pd.DataFrame, shuffle: bool) -> DataLoader:
         """
         Tokenise a split in one pass into a TensorDataset. The whole split is
@@ -271,7 +312,7 @@ class Model():
         )
         return DataLoader(
             dataset, batch_size=self.batch_size, shuffle=shuffle,
-            pin_memory=self.device.type == "cuda",
+            pin_memory=self.device.type == "cuda", generator=self.generator,
         )
 
     def _autocast(self) -> torch.autocast:
