@@ -78,9 +78,8 @@ class Benchmark:
         chemistry. It bounds how honest an in-distribution split can be, since
         a cluster with one member cannot be represented on both sides of one.
 
-        Read off the Model's own split frames rather than by splitting again:
-        the fingerprint deal is quadratic in the number of molecules, so a
-        second call to get the same deterministic answer is not free.
+        Read off the Model's own split frames rather than by splitting again,
+        so the numbers describe the split that was actually trained on.
 
         Parameters
         ----------
@@ -91,19 +90,17 @@ class Benchmark:
         -------
         dict[str, float]
             Realised fraction of molecules per split, the cluster count, and
-            the fraction of molecules alone in their cluster. The cluster
-            columns are NaN for the fingerprint split, which does not group.
+            the fraction of molecules alone in their cluster.
         """
         splitter = model.splitter
-        clusters = getattr(splitter, "clusters", None)
         # Kept molecules only, so the counts agree with the split fractions.
-        sizes = None if clusters is None else pd.Series(clusters[splitter.rows]).value_counts()
+        sizes = pd.Series(splitter.clusters[splitter.rows]).value_counts()
         return {
             "train": len(model.train_df) / splitter.n,
             "test": len(model.test_df) / splitter.n,
             "valid": len(model.valid_df) / splitter.n,
-            "clusters": np.nan if sizes is None else len(sizes),
-            "singletons": np.nan if sizes is None else sizes.eq(1).sum() / splitter.n,
+            "clusters": len(sizes),
+            "singletons": sizes.eq(1).sum() / splitter.n,
         }
 
     def _time_training(self, model: Model) -> dict[str, float]:
