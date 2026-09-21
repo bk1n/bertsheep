@@ -45,10 +45,18 @@ LABEL_AXIS = "-ln IC50 (nM)"
 # repeats and which is luck of the draw.
 SPLIT_REPLICATES = 3
 # Keyed in the order the titles and the legend read. DROPPED is the ligands
-# MIN_CLUSTER_SIZE leaves out of every split, not a fourth split.
+# MIN_CLUSTER_SIZE leaves out of every split, not a fourth split, so it takes
+# the grey and the three real splits take hues.
+#
+# Orange rather than green for valid: red and green are the pair deuteranopia
+# collapses, and tab:red against tab:green separates by an OKLab dE of only
+# 3.9 against a floor of 8 -- train and valid would read as one colour for
+# most colourblind readers. Darkening the green does not fix it (3.7), nor do
+# teal or purple. This set holds dE >= 11.8 across protan-, deuter- and
+# tritanopia.
 DROPPED = "dropped"
-SPLIT_COLOURS = {"train": GREY, "test": "tab:red", "valid": "tab:blue",
-                 DROPPED: "tab:orange"}
+SPLIT_COLOURS = {"train": "tab:red", "test": "tab:blue", "valid": "tab:orange",
+                 DROPPED: GREY}
 SPLIT_FIGSIZE = (15, 9)
 OTHER = "other"
 WILD_TYPE = "wild type"
