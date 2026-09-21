@@ -29,6 +29,9 @@ How do the **embedding** layers differ between pre-trained and fine-tuned models
 
 Model: [DeepChem/ChemBERTa-10M-MTR](https://huggingface.co/DeepChem/ChemBERTa-10M-MTR)
 
+Pre-trained: frozen model + trained regression head
+Fine-tuned: unfrozen model + trained regression head
+
 ### Splitting Strategies
 
 For both tests, we split compounds in three ways:
