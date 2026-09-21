@@ -34,26 +34,32 @@ Fine-tuned: unfrozen model + trained regression head
 
 ### Splitting Strategies
 
-For both tests, we split compounds in three ways:
+For both tests, we split compounds in two ways:
 1. Bemis-Murcko scaffolds (less stringent)
 2. Butina-split clusters (more stringent)
-3. Fingerprint splitting (most stringent) 
 
 See [here](https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html#scaffoldsplitter) for more detail.
+
+A third strategy, fingerprint splitting, was specified and then dropped. The
+greedy Tanimoto deal is deterministic: one set of molecules gives one split,
+whatever the seed. Its 30 repeats would therefore have resampled the model and
+not the chemistry held out, so its spread would have measured something
+different from the other two strategies' while sitting in the same figure
+beside them. Dropping it also returns a third of the run budget, which is the
+binding constraint on a 4060. Butina clustering already covers holding out
+whole regions of chemical space.
 
 ### Cross-validation
 
 Due to computational limitations (this is trained locally on an RTX 4060), we will sample run Optuna w/ TPESampler once per seed, optimising hyperparameters on train + test data, with held-out evaluation set, and share these hyperparameters across runs.
 
-In-distribution: 
-1. For Bemis-Murcko and Burtina splits, we use stratified splitting by "scaffolds" to ensure equal representation of scaffolds.
-2. For fingerprint splitting, we iteratively build splits with compounds that maximise the Tanimoto similarity between groups.
+In-distribution: for both Bemis-Murcko and Butina splits, we use stratified splitting by "scaffolds" to ensure equal representation of scaffolds.
 
-Out-of-distribution: 
-1. BM & Burtina: group shuffled splits ensures some scaffolds are held-out.
-2. Fingerprint: minimise Tanimoto similarity.
+Out-of-distribution: for both, group shuffled splits ensure some scaffolds are held-out.
 
-All experiments are repeated 30 times.
+Groups smaller than a minimum size are dropped from every split: a cluster with one member cannot be represented on both sides of an in-distribution split, and is not a series an out-of-distribution one can learn from.
+
+All experiments are repeated 30 times. A repeat is a new seed on both the splitter and the model, so head initialisation and batch order are resampled alongside the chemistry held out.
 
 ## Figures
 ### Question 1
