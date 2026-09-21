@@ -6,8 +6,15 @@ not do yet, at the level of "what needs building", not how.
 ## Before any real run
 
 - [ ] Run `benchmark.py` on the real EGFR frame — seconds/epoch and peak VRAM on the 4060 decide the Optuna trial budget and whether cloud compute is needed
-- [ ] EDA on the preprocessed EGFR frame — label distribution, scaffold/Butina cluster sizes, singleton fraction, realised split ratios
-- [ ] Settle the open data questions that EDA answers: affinity cutoff (`MAX_KI_NM` is unused), and whether splits must group by ligand across mutations
+- [ ] data.py: 
+    - [ ] add parquet caching of data_path target data frames; if fetched again, use parquet rather than loading full CSV; save to out/.cache/
+    - [ ] add mutation argument to filter frame by mutation; use "wildtype" as wildtype arg; post-caching to parquet
+- [ ] eda.py: on the preprocessed EGFR frame — label distribution, scaffold/Butina cluster sizes, singleton fraction, realised split ratios
+    - [ ] Fix eda.py; update to latest splitting methods
+    - [ ] Open EDA questions:
+        - [ ] do we group mutations together or stratify analyses by mutation?
+- [ ] Ensure appropriate epoch-level logging of necessary elements: per epoch states (to fetch embeddings later), losses, etc.
+    - [ ] model.py: Build method to get embedding from the .pt model state_dict's weights
 
 ## Question 1 — does fine-tuning help?
 
