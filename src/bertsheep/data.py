@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,8 @@ MAX_KI_NM = 100_000  # unused while the affinity cutoff is dropped
 MAX_SMILES_LENGTH = 128
 CHUNK_SIZE = 200_000
 LABEL = "ic50"  # which affinity column becomes the training label
+CACHE_DIR = Path("out/.cache")
+WILD_TYPE = "wildtype"  # mutation argument selecting the unmutated construct
 
 # Target Name carries the construct in brackets, e.g.
 #   "Epidermal growth factor receptor [1-745,751-1210,T790M]"
@@ -46,14 +49,27 @@ TARGET = {
 
 class Data():
     """
-    Loads binding affinity data from BindingDB and fetches data
+    Loads binding affinity data from BindingDB and fetches data.
+
+    Parameters
+    ----------
+    data_path : str | Path
+        Path to the raw BindingDB TSV dump.
+    target : str
+        Short target name, a key of TARGET.
+    mutation : str | None
+        Variant to keep: WILD_TYPE for the unmutated construct, a mutations
+        string as produced by _parse_annotation (e.g. "L858R,T790M") for one
+        mutant, or None to keep every variant.
     """
-    def __init__(self, data_path, target):
+    def __init__(self, data_path: str | Path, target: str, mutation: str | None = None) -> None:
         if target not in TARGET:
             raise KeyError(f"unknown target {target!r}; choose from {sorted(TARGET)}")
-        self.data_path = data_path
+        self.data_path = Path(data_path)
         self.target = target
+        self.mutation = mutation
         self.entry_name, self.uniprot_id = TARGET[target]
+        self.cache_path = CACHE_DIR / f"{self.data_path.stem}_{target}.parquet"
 
     def _fetch_data(self):
         load_dotenv()
@@ -99,6 +115,31 @@ class Data():
             ignore_index=True,
         )
         print(f"-- {len(df)} rows for {self.target} ({TARGET[self.target]})")
+        return df
+
+    def _load_cached(self) -> pd.DataFrame:
+        """
+        Returns the target's raw rows from the parquet cache, building the
+        cache with _load on first use. Scanning the full TSV takes minutes;
+        the cached target frame reads in well under a second. The cache holds
+        every variant, unfiltered, so one file serves all mutation arguments
+        and every downstream stage still runs on each call.
+
+        The cache is keyed on the dump's file name and the target only: it is
+        not invalidated if the TSV is replaced in place, so delete CACHE_DIR
+        after refetching the same dump.
+
+        Returns
+        -------
+        pd.DataFrame
+            Target rows with smiles, target_name, ki and ic50 columns.
+        """
+        if self.cache_path.exists():
+            print(f"-- Reading cached {self.cache_path}")
+            return pd.read_parquet(self.cache_path)
+        df = self._load()
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(self.cache_path, index=False)
         return df
 
     def _select_target(self, df):
@@ -163,6 +204,34 @@ class Data():
         lookup = {name: self._parse_annotation(name) for name in names.unique()}
         return df.assign(mutations=names.map(lookup))
 
+    def _select_mutation(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Keeps only the variant named by the mutation argument. Matching is
+        exact on the sorted, comma-joined mutations string, so a double mutant
+        does not also pull in its single mutants. An argument matching no rows
+        raises rather than returning an empty frame, since a misspelt or
+        misordered variant would otherwise surface much later as a crash in
+        splitting or training.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Frame with a mutations column, "" for wild type.
+
+        Returns
+        -------
+        pd.DataFrame
+            Rows for the selected variant, or df unchanged if mutation is None.
+        """
+        if self.mutation is None:
+            return df
+        wanted = "" if self.mutation == WILD_TYPE else self.mutation
+        df = df[df["mutations"] == wanted]
+        if df.empty:
+            raise ValueError(f"no rows for mutation {self.mutation!r}")
+        print(f"-- {len(df)} rows for mutation {self.mutation!r}")
+        return df
+
     def _deduplicate(self, df):
         """
         Collapses repeated measurements of the same ligand against the same
@@ -218,13 +287,16 @@ class Data():
 
     def _preprocess(self):
         """
-        Runs load -> filter -> mutations -> canonicalise -> drop acyclic ->
-        deduplicate -> transform. Canonicalising before deduplicating means the
-        same molecule written two ways collapses into one group.
+        Runs load (cached) -> filter -> mutations -> select mutation ->
+        canonicalise -> drop acyclic -> deduplicate -> transform.
+        Canonicalising before deduplicating means the same molecule written
+        two ways collapses into one group. Selecting the mutation before
+        canonicalising keeps the RDKit work to the rows actually kept.
         """
-        df = self._load()
+        df = self._load_cached()
         df = self._filter(df)
         df = self._extract_mutations(df)
+        df = self._select_mutation(df)
         df = self._canonicalise(df)
         df = self._drop_acyclic(df)
         df = self._deduplicate(df)
