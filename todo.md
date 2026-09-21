@@ -13,8 +13,9 @@ not do yet, at the level of "what needs building", not how.
     - [ ] Fix eda.py; update to latest splitting methods
     - [ ] Open EDA questions:
         - [ ] do we group mutations together or stratify analyses by mutation?
-- [ ] Ensure appropriate epoch-level logging of necessary elements: per epoch states (to fetch embeddings later), losses, etc.
-    - [ ] model.py: Build method to get embedding from the .pt model state_dict's weights
+- [x] Ensure appropriate epoch-level logging of necessary elements: per epoch states (to fetch embeddings later), losses, etc.
+    - [x] model.py: Build method to get embedding from the .pt model state_dict's weights
+    - [ ] Attention maps for Q2 are not stored; recompute from checkpoints (`output_attentions=True`) when the RSA/UMAP work needs them
 
 ## Question 1 — does fine-tuning help?
 
