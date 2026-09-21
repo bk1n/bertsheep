@@ -42,6 +42,8 @@ Eda(df, "EGFR").label_histogram()
 
 `data/` is gitignored and is **not** reproducible from the repo — the raw BindingDB dump (`data/BindingDB_All_202609_tsv/BindingDB_All.tsv`, ~8.4 GB, 640 columns) is rsynced from a Windows path given by `DATA_PATH` in `.env`, via WSL (`wslpath` + `rsync`). Both `fetch.sh` and `Data._fetch_data` do this; they are duplicates of each other.
 
+`data/` is strictly for raw data only, never anything processed. All outputs (caches, parquet files, figures, predictions, anything derived) must go to `out/`, not `data/`.
+
 Because the source is large, `Data._load` reads it in chunks (`CHUNK_SIZE`) with `usecols=list(COLUMNS)` and `dtype=str`, filtering each chunk down to the target before concatenating. Any change to the load path must preserve that — never read the TSV whole.
 
 ## Architecture (`src/bertsheep/`)
