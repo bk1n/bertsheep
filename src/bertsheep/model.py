@@ -1,4 +1,5 @@
 import json
+import random
 import time
 from collections.abc import Iterable
 from datetime import datetime
@@ -364,6 +365,32 @@ class Model():
             self.test_df.assign(split="test"),
             self.valid_df.assign(split="valid"),
         ]).to_parquet(self.model_dir / SPLITS)
+
+    def _seed(self, seed: int) -> torch.Generator:
+        """
+        Seed every generator a run draws on -- Python, numpy and torch on both
+        devices -- and return the one the training DataLoader shuffles with.
+
+        This makes a run repeatable without forcing deterministic kernels,
+        which cost throughput and raise on ops that have no deterministic
+        implementation. cuDNN is still free to autotune, so two runs of the
+        same seed on GPU can differ in the last decimal places.
+
+        Parameters
+        ----------
+        seed : int
+            Seed applied to every generator.
+
+        Returns
+        -------
+        torch.Generator
+            Generator for the training DataLoader's shuffle.
+        """
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        return torch.Generator().manual_seed(seed)
 
     def _dataloader(self, frame: pd.DataFrame, shuffle: bool) -> DataLoader:
         """
