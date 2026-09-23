@@ -1,0 +1,337 @@
+import json
+import time
+from collections.abc import Iterable
+from itertools import product
+from pathlib import Path
+
+import pandas as pd
+from sklearn.metrics import r2_score, root_mean_squared_error
+from xgboost import XGBRegressor
+
+from bertsheep.chemistry import Chemist
+from bertsheep.data import WILD_TYPE, Data
+from bertsheep.model import Model
+from bertsheep.splitters import DISTRIBUTIONS, Splitters
+from bertsheep.tuning import BEST_PARAMS, TUNING_DIR, Tuner
+
+EXPERIMENT_DIR = Path("out/experiments")
+RESULTS = "{target}-{mutation}.csv"
+KEY = ["arm", "distribution", "seed"]  # one results row per combination
+
+# Butina only; Bemis-Murcko scaffold splits are not part of the matrix.
+METHOD = "butina"
+ARMS = ("baseline", "pretrained", "finetuned")
+N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
+# The search runs once, on the first replicate's split; every seed reuses it.
+TUNING_SEED = 0
+MIN_CLUSTER_SIZE = 10
+MUTATION = WILD_TYPE
+
+# Fixed rather than searched: the baseline is a reference point, and early
+# stopping on test picks the number of trees, which is the setting that
+# matters most. Column subsampling suits 1024 sparse fingerprint bits.
+XGB_PARAMS = {
+    "n_estimators": 2000,
+    "learning_rate": 0.05,
+    "max_depth": 6,
+    "subsample": 0.8,
+    "colsample_bytree": 0.5,
+    "early_stopping_rounds": 50,
+}
+
+
+class Experiment:
+    """
+    Run the arm x distribution x seed matrix that answers README's Question 1
+    for one target frame, and write one results row per run.
+
+    The three arms -- an XGBoost fingerprint baseline, a frozen pretrained
+    encoder with a trained head, and a fine-tuned encoder -- are scored on the
+    same split for every (distribution, seed), so their differences can be
+    read in pairs, seed by seed. The fingerprints and Tanimoto distance matrix
+    are computed once here and shared by every splitter, since they depend on
+    the molecules and not on the seed.
+
+    Rows are appended to out/experiments/<target>-<mutation>.csv as each run
+    finishes, and grid() skips combinations already there, so a matrix that
+    stops part way resumes rather than restarting.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Preprocessed frame with `smiles` and `labels` columns, as returned by
+        Data._preprocess.
+    target : str
+        Short target name, used for the tuned parameters and the results file.
+    mutation : str | None
+        Variant the frame was selected for, recorded on every row.
+    min_cluster_size : int
+        Butina clusters smaller than this are left out of every split.
+    """
+
+    def __init__(self, df: pd.DataFrame, target: str,
+                 mutation: str | None = MUTATION,
+                 min_cluster_size: int = MIN_CLUSTER_SIZE) -> None:
+        self.df = df
+        self.target = target
+        self.mutation = mutation
+        self.min_cluster_size = min_cluster_size
+        chemist = Chemist()
+        self.fingerprints = chemist.fingerprints(df["smiles"])
+        self.distances = chemist.pairwise_tanimoto(self.fingerprints)
+        EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
+        self.results_path = EXPERIMENT_DIR / RESULTS.format(
+            target=target, mutation=mutation or "pooled"
+        )
+
+    def _splitter(self, distribution: str, seed: int) -> Splitters:
+        """
+        Build the split for one replicate from the shared distance matrix, so
+        a new seed costs a Butina clustering, not a new matrix.
+
+        Parameters
+        ----------
+        distribution : str
+            'in' or 'out', see Splitters.
+        seed : int
+            Replicate seed.
+
+        Returns
+        -------
+        Splitters
+            Splitter over this frame's SMILES.
+        """
+        return Splitters(
+            self.df["smiles"], METHOD, distribution, seed=seed,
+            min_cluster_size=self.min_cluster_size, distances=self.distances,
+        )
+
+    def tune(self, distributions: Iterable[str] = DISTRIBUTIONS) -> None:
+        """
+        Run the hyperparameter search for each distribution on the first
+        replicate's split. Tuning is split-specific because what an
+        out-of-distribution fit needs to regularise against differs from an
+        in-distribution one; tuning once rather than per seed is what the
+        4060's budget allows.
+
+        Parameters
+        ----------
+        distributions : Iterable[str]
+            Distributions to tune for.
+        """
+        for distribution in distributions:
+            Tuner(self.df, self.target,
+                  self._splitter(distribution, TUNING_SEED)).optimise()
+
+    def _params(self, distribution: str) -> dict[str, float | int]:
+        """
+        The tuned Model arguments for a distribution, as written by Tuner.
+        Read rather than defaulted: a matrix run on untuned defaults would
+        look exactly like a tuned one in the results.
+
+        Parameters
+        ----------
+        distribution : str
+            Distribution the parameters were tuned for.
+
+        Returns
+        -------
+        dict[str, float | int]
+            Model keyword arguments.
+        """
+        study = f"{self.target}-{METHOD}-{distribution}"
+        return json.loads((TUNING_DIR / BEST_PARAMS.format(study)).read_text())["params"]
+
+    def _baseline(self, splitter: Splitters) -> dict[str, float | str | None]:
+        """
+        XGBoost on ECFP4 bits: what a model with no language pretraining gets
+        from the same split. Early stopping watches test, as the transformer
+        arms' epoch selection does, and valid is scored once at the end.
+
+        Parameters
+        ----------
+        splitter : Splitters
+            Split to fit and score on.
+
+        Returns
+        -------
+        dict[str, float | str | None]
+            Valid RMSE and R2, the best boosting round and no run directory.
+        """
+        train, test, valid = splitter.split()
+        X, y = self.fingerprints, self.df["labels"].to_numpy()
+        model = XGBRegressor(**XGB_PARAMS, random_state=splitter.seed)
+        model.fit(X[train], y[train], eval_set=[(X[test], y[test])], verbose=False)
+        # With early stopping set, predict() uses the best round, not the last.
+        preds = model.predict(X[valid])
+        return {
+            "valid_rmse": root_mean_squared_error(y[valid], preds),
+            "valid_r2": r2_score(y[valid], preds),
+            "best_epoch": model.best_iteration,
+            "run_dir": None,
+        }
+
+    def _transformer(self, splitter: Splitters,
+                     freeze: bool) -> dict[str, float | str | None]:
+        """
+        Fit and score ChemBERTa on the split, frozen or fine-tuned, with the
+        hyperparameters tuned for fine-tuning. The frozen arm takes them
+        without `reinit_n`, since re-initialising a layer it cannot train
+        would only feed the head noise. Only fine-tuned runs write checkpoints:
+        a frozen encoder's weights are the published ones at every epoch.
+
+        Parameters
+        ----------
+        splitter : Splitters
+            Split to fit and score on; its seed also seeds the model.
+        freeze : bool
+            Train the head only.
+
+        Returns
+        -------
+        dict[str, float | str | None]
+            Valid RMSE and R2, the selected epoch and the run directory.
+        """
+        params = self._params(splitter.distribution)
+        if freeze:
+            params = {k: v for k, v in params.items() if k != "reinit_n"}
+        model = Model(self.df, self.target, splitter, seed=splitter.seed,
+                      checkpoint=not freeze, freeze=freeze, **params)
+        model.fit()
+        metrics = model.evaluate()
+        return {
+            "valid_rmse": metrics["rmse"],
+            "valid_r2": metrics["r2"],
+            "best_epoch": model.best_epoch,
+            "run_dir": str(model.model_dir),
+        }
+
+    def _run(self, arm: str, splitter: Splitters) -> dict:
+        """
+        Fit and score one arm on a split and append its row to the results
+        file straight away, so a crash loses at most the run in progress.
+
+        Parameters
+        ----------
+        arm : str
+            One of ARMS.
+        splitter : Splitters
+            Split to fit and score on.
+
+        Returns
+        -------
+        dict
+            The results row: what was run, the realised split sizes, the
+            valid scores and the wall time.
+        """
+        start = time.time()
+        if arm == "baseline":
+            result = self._baseline(splitter)
+        else:
+            result = self._transformer(splitter, freeze=arm == "pretrained")
+        train, test, valid = splitter.split()
+        row = {
+            "target": self.target, "mutation": self.mutation, "method": METHOD,
+            "distribution": splitter.distribution, "arm": arm,
+            "seed": splitter.seed, "min_cluster_size": self.min_cluster_size,
+            "n_train": len(train), "n_test": len(test), "n_valid": len(valid),
+            **result, "seconds": time.time() - start,
+        }
+        pd.DataFrame([row]).to_csv(self.results_path, mode="a", index=False,
+                                   header=not self.results_path.exists())
+        return row
+
+    def run(self, arm: str, distribution: str, seed: int) -> dict:
+        """
+        One cell of the matrix on its own.
+
+        Parameters
+        ----------
+        arm : str
+            One of ARMS.
+        distribution : str
+            'in' or 'out'.
+        seed : int
+            Replicate seed, for both the split and the model.
+
+        Returns
+        -------
+        dict
+            The results row, also appended to the results file.
+        """
+        return self._run(arm, self._splitter(distribution, seed))
+
+    def _done(self) -> set[tuple]:
+        """
+        Combinations already in the results file.
+
+        Returns
+        -------
+        set[tuple]
+            (arm, distribution, seed) of every finished run.
+        """
+        if not self.results_path.exists():
+            return set()
+        return set(pd.read_csv(self.results_path)[KEY].itertuples(index=False, name=None))
+
+    def grid(self, arms: Iterable[str] = ARMS,
+             distributions: Iterable[str] = DISTRIBUTIONS,
+             seeds: Iterable[int] = range(N_REPEATS)) -> pd.DataFrame:
+        """
+        Run every missing combination. Arms are the innermost loop so each
+        (distribution, seed) builds one splitter and hands it to all three:
+        the arms are compared on the same rows by construction.
+
+        Parameters
+        ----------
+        arms : Iterable[str]
+            Arms to run.
+        distributions : Iterable[str]
+            Distributions to run.
+        seeds : Iterable[int]
+            Replicate seeds to run.
+
+        Returns
+        -------
+        pd.DataFrame
+            Every row in the results file, including those from earlier calls.
+        """
+        done, arms = self._done(), list(arms)
+        for distribution, seed in product(distributions, seeds):
+            todo = [arm for arm in arms if (arm, distribution, seed) not in done]
+            if todo:
+                splitter = self._splitter(distribution, seed)
+                for arm in todo:
+                    self._run(arm, splitter)
+        return pd.read_csv(self.results_path)
+
+
+def experiment(data_path: str | Path, target: str, arm: str, distribution: str,
+               seed: int, mutation: str | None = MUTATION) -> dict:
+    """
+    Run one cell of the matrix from plain strings, preprocessing the target
+    from the dump (or its parquet cache) first. For many cells, build one
+    Experiment and call grid(): this pays for the distance matrix every call.
+
+    Parameters
+    ----------
+    data_path : str | Path
+        Path to the raw BindingDB TSV dump.
+    target : str
+        Short target name, a key of data.TARGET.
+    arm : str
+        One of ARMS.
+    distribution : str
+        'in' or 'out'.
+    seed : int
+        Replicate seed, for both the split and the model.
+    mutation : str | None
+        Variant to keep, see Data.
+
+    Returns
+    -------
+    dict
+        The results row, also appended to the results file.
+    """
+    df = Data(data_path, target, mutation)._preprocess()
+    return Experiment(df, target, mutation).run(arm, distribution, seed)

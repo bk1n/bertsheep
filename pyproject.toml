@@ -22,6 +22,7 @@ dependencies = [
     "torch>=2.14.0",
     "transformers>=5.17.0",
     "umap-learn>=0.5.12",
+    "xgboost>=3.4.1",
 ]
 
 [project.scripts]
