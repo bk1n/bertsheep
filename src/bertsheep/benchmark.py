@@ -1,11 +1,13 @@
 import time
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 import torch
 
+from bertsheep import model as model_module
 from bertsheep.model import Model
 from bertsheep.splitters import Splitters
 
@@ -22,9 +24,13 @@ class Benchmark:
     Measure what one fit costs on this machine, so the experiment matrix is
     sized from timings rather than from guesses.
 
-    Produces a single row: the shape the representative split actually lands
-    on, how much of the target is one-off chemistry, and how long an epoch
-    takes. Training is timed through Model's epoch and scoring
+    Produces one row per precision arm, bf16 autocast off and on: the shape
+    the representative split actually lands on, how much of the target is
+    one-off chemistry, how long an epoch takes, and where the losses stand
+    after the timed epochs. Both arms share the split and the model seed, so
+    head initialisation and batch order match and any gap in loss is down to
+    the arithmetic alone -- the speed-up is only worth taking if it does not
+    cost accuracy. Training is timed through Model's epoch and scoring
     steps rather than through fit(), because fit() writes a checkpoint every
     epoch and would put disk I/O inside the measurement.
 
@@ -106,12 +112,16 @@ class Benchmark:
     def _time_training(self, model: Model) -> dict[str, float]:
         """
         Seconds per epoch and peak GPU memory for one Model, projected out to a
-        full run at the Model's own epoch ceiling. The first epoch is discarded
-        because it pays for CUDA context setup and the first allocation of every
-        buffer, which the epochs after it do not.
+        full run at the Model's own epoch ceiling, plus the train and test
+        losses after the last timed epoch. The first epoch is discarded from
+        the timing because it pays for CUDA context setup and the first
+        allocation of every buffer, which the epochs after it do not.
 
         The projection is an upper bound: it assumes every epoch is spent,
-        whereas early stopping usually ends a real run sooner.
+        whereas early stopping usually ends a real run sooner. The losses are
+        a few epochs into an 80-epoch schedule, still inside warmup at the
+        default ratio, so they compare the two precisions early in training
+        rather than at convergence.
 
         Parameters
         ----------
@@ -123,7 +133,8 @@ class Benchmark:
         -------
         dict[str, float]
             Mean seconds per epoch, peak allocated VRAM in GiB (NaN on CPU),
-            and the projected minutes for a full fit.
+            the projected minutes for a full fit, and the final epoch's train
+            loss, test loss and test R2.
         """
         cuda = model.device.type == "cuda"
         if cuda:
@@ -132,8 +143,8 @@ class Benchmark:
         times = []
         for epoch in range(self.epochs):
             start = time.time()
-            model._train_epoch(epoch)
-            model._score(model.test_loader)
+            train_loss = model._train_epoch(epoch)
+            test_loss, preds, labels = model._score(model.test_loader)
             times.append(time.time() - start)
 
         seconds = np.mean(times[1:])
@@ -141,20 +152,50 @@ class Benchmark:
             "seconds_per_epoch": seconds,
             "peak_vram_gb": torch.cuda.max_memory_allocated() / 1024**3 if cuda else np.nan,
             "projected_fit_minutes": seconds * model.num_epochs / 60,
+            "train_loss": train_loss,
+            "test_loss": test_loss,
+            "test_r2": model._metrics(preds, labels)["r2"],
         }
+
+    def _arm(self, splitter: Splitters, autocast: bool) -> dict[str, float]:
+        """
+        Build a fresh Model on the split with bf16 autocast forced on or off,
+        then describe the split and time training. `AUTOCAST` is patched on
+        the model module because model.autocast() reads it at call time; the
+        patch is undone on return so the module default is left as found. The
+        Model is local so its weights are freed before the next arm measures
+        peak memory.
+
+        Parameters
+        ----------
+        splitter : Splitters
+            Splitter shared by every arm, so all arms train on the same rows.
+        autocast : bool
+            Whether the forward passes run under bf16 autocast.
+
+        Returns
+        -------
+        dict[str, float]
+            The arm's precision setting, split diagnostics and timings.
+        """
+        with mock.patch.object(model_module, "AUTOCAST", autocast):
+            model = Model(self.df, self.target, splitter)
+            return ({"autocast": autocast}
+                    | self._split_diagnostics(model) | self._time_training(model))
 
     def run(self) -> pd.DataFrame:
         """
-        Benchmark the representative split end to end and write the row to
-        out/benchmark/<timestamp>.csv: build a Model on the split, describe
-        what the split landed on, then time training. The dataset statistics are
-        carried on the row so a saved run is self-describing: a timing only
-        means something next to the frame it was measured on.
+        Benchmark the representative split end to end, once in fp32 and once
+        under bf16 autocast, and write the rows to
+        out/benchmark/<timestamp>.csv. The dataset statistics are carried on
+        every row so a saved run is self-describing: a timing only means
+        something next to the frame it was measured on. On CPU autocast is a
+        no-op, so the two rows differ only by timing noise.
 
         Returns
         -------
         pd.DataFrame
-            The single measurement row, as written to the CSV.
+            One measurement row per precision arm, as written to the CSV.
         """
         stats = self.dataset()
         print(f"-- {self.target}: {stats['rows']} rows, {stats['ligands']} ligands, "
@@ -165,10 +206,10 @@ class Benchmark:
             self.df["smiles"], METHOD, DISTRIBUTION,
             min_cluster_size=MIN_CLUSTER_SIZE,
         )
-        model = Model(self.df, self.target, splitter)
         results = pd.DataFrame([
             {"method": METHOD, "distribution": DISTRIBUTION}
-            | self._split_diagnostics(model) | self._time_training(model) | stats
+            | self._arm(splitter, autocast) | stats
+            for autocast in (False, True)
         ])
 
         BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
