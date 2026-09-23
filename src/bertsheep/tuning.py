@@ -35,7 +35,13 @@ LR_RANGE = (1e-5, 1e-3)
 LLRD_DECAY_RANGE = (0.7, 1.0)
 WEIGHT_DECAY_RANGE = (0.0, 0.3)
 WARMUP_RATIO_RANGE = (0.0, 0.2)
-REINIT_N_RANGE = (0, 3)
+# ChemBERTa-10M-MTR has three encoder layers, so this is nearly binary: the
+# few-sample reinit trick discards the quarter of the encoder nearest the head
+# (Zhang et al. 2021, 6 layers of BERT-large's 24), and a third is already
+# past that. Reinitialising all three would be pretraining thrown away rather
+# than a fine-tuning setting, and a "fine-tuned" arm that won that way would
+# not answer the question the arm exists to answer.
+REINIT_N_RANGE = (0, 1)
 
 
 class Tuner:
