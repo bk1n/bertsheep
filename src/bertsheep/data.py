@@ -18,6 +18,7 @@ MAX_SMILES_LENGTH = 128
 CHUNK_SIZE = 200_000
 LABEL = "ic50"  # which affinity column becomes the training label
 CACHE_DIR = Path("out/.cache")
+DUMP_PATH = Path("data/BindingDB_All_202609_tsv/BindingDB_All.tsv")
 WILD_TYPE = "wildtype"  # mutation argument selecting the unmutated construct
 
 # Target Name carries the construct in brackets, e.g.

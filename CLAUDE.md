@@ -20,15 +20,16 @@ The project uses `uv` (Python 3.14, `uv_build` backend, src layout).
 
 ```bash
 uv sync                      # create/refresh .venv from uv.lock
-uv run bertsheep             # console script -> bertsheep:main (currently a stub)
+uv run bertsheep EGFR        # full run: tune, then the arm x distribution x seed grid (resumable)
+uv run bertsheep EGFR --arms pretrained --seeds 3   # smoke run; its rows count towards the grid
 uv run python -c "..."       # run anything against the project env
 uv add <pkg>                 # add a dependency (updates pyproject.toml + uv.lock)
 ./fetch.sh                   # rsync the BindingDB dump from Windows into ./data
 ```
 
-Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. There is no linter config or CLI entry point beyond the stub yet. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
+Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. There is no linter config. `bertsheep` (`experiment.main`) is the one entry point for a run; the `__main__` blocks in `eda.py`, `model.py` and `benchmark.py` are legacy and slated for removal. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
 
-Typical interactive use, since `Data` has no public runner yet:
+Typical interactive use for exploration:
 
 ```python
 from bertsheep.data import Data

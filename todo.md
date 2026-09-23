@@ -37,6 +37,7 @@ not do yet, at the level of "what needs building", not how.
     - [x] implement a suite of experiments that answer questions in README.md
     - [x] don't implement scaffold splits; Butina splits are working much better than BM scaffolds for this; doesn't need to be comprehensive
     - [ ] The pre-trained arm reuses the LR tuned for fine-tuning, which is sized for moving the whole encoder; a head alone may want a larger one. A 2-epoch smoke run at 6.9e-5 left it near R2 = 0. Check its curves on the first real seeds before running all 30 -- if it is still climbing at `num_epochs`, the comparison is against an undertrained head
+    - [x] Command-line runner: `uv run bertsheep <target>` preprocesses, tunes (resuming the SQLite study) and runs the missing grid cells; `--arms`/`--distributions`/`--seeds` narrow it for smoke runs
     - [ ] `MUTATION` defaults to wildtype (11k labels on EGFR); the tuning study has to be run on the same frame, via `Experiment.tune()`
 
 ## Question 1 — does fine-tuning help?

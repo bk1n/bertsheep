@@ -1,3 +1,4 @@
+import argparse
 import json
 import time
 from collections.abc import Iterable
@@ -9,7 +10,7 @@ from sklearn.metrics import r2_score, root_mean_squared_error
 from xgboost import XGBRegressor
 
 from bertsheep.chemistry import Chemist
-from bertsheep.data import WILD_TYPE, Data
+from bertsheep.data import DUMP_PATH, WILD_TYPE, Data
 from bertsheep.model import Model
 from bertsheep.splitters import DISTRIBUTIONS, Splitters
 from bertsheep.tuning import BEST_PARAMS, TUNING_DIR, Tuner
@@ -342,3 +343,31 @@ def experiment(data_path: str | Path, target: str, arm: str, distribution: str,
     """
     df = Data(data_path, target, mutation)._preprocess()
     return Experiment(df, target, mutation).run(arm, distribution, seed)
+
+
+def main() -> None:
+    """
+    Command-line entry point, `uv run bertsheep <target>`: preprocess the
+    target, tune any distribution whose study is short of its trials, then run
+    every missing cell of the matrix. Both stages resume, so the same command
+    restarts a run that died part way; the narrowing flags are for a smoke run
+    whose rows then count towards the full grid.
+    """
+    parser = argparse.ArgumentParser(prog="bertsheep", description=main.__doc__)
+    parser.add_argument("target", help="short target name, a key of data.TARGET")
+    parser.add_argument("--mutation", default=MUTATION,
+                        help=f"variant to keep (default: {MUTATION})")
+    parser.add_argument("--arms", nargs="+", choices=ARMS, default=ARMS)
+    parser.add_argument("--distributions", nargs="+", choices=DISTRIBUTIONS,
+                        default=DISTRIBUTIONS)
+    parser.add_argument("--seeds", type=int, default=N_REPEATS,
+                        help=f"run seeds 0..N-1 (default: {N_REPEATS})")
+    args = parser.parse_args()
+
+    df = Data(DUMP_PATH, args.target, args.mutation)._preprocess()
+    exp = Experiment(df, args.target, args.mutation)
+    # The baseline reads no tuned parameters, so a baseline-only run skips it.
+    if set(args.arms) - {"baseline"}:
+        exp.tune(args.distributions)
+    exp.grid(args.arms, args.distributions, range(args.seeds))
+    print(f"-- Results in {exp.results_path}")
