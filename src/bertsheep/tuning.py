@@ -13,7 +13,8 @@ TUNING_DIR = Path("out/tuning")
 STUDY_DB = "studies.db"
 BEST_PARAMS = "{}.json"
 
-N_TRIALS = 50
+# Six dimensions; 50 trials left TPE too little to model the space with.
+N_TRIALS = 75
 TUNER_SEED = 0
 
 # Trials TPE samples at random before it has enough observations to model the
@@ -32,6 +33,10 @@ WARMUP_EPOCHS = 10
 # schedule, so searching it would reshape the decay curve rather than just
 # lengthen the budget.
 LR_RANGE = (1e-5, 1e-3)
+# Searched rather than inherited: the checkpoint's 0.144 was tuned for
+# multi-task pretraining over millions of molecules, and weight decay is a poor
+# substitute for it -- dropout does most of the regularising in a transformer.
+DROPOUT_RANGE = (0.05, 0.30)
 LLRD_DECAY_RANGE = (0.7, 1.0)
 WEIGHT_DECAY_RANGE = (0.0, 0.3)
 WARMUP_RATIO_RANGE = (0.0, 0.2)
@@ -116,6 +121,7 @@ class Tuner:
             "warmup_ratio": trial.suggest_float(
                 "warmup_ratio", *WARMUP_RATIO_RANGE
             ),
+            "dropout": trial.suggest_float("dropout", *DROPOUT_RANGE),
             "reinit_n": trial.suggest_int("reinit_n", *REINIT_N_RANGE),
         }
 

@@ -173,6 +173,13 @@ class Model():
         Layerwise LR decay: each layer below the head trains at llrd_decay x
         the rate of the one above it. Lower layers hold general SMILES grammar
         and want to move less than the head. 1.0 gives uniform AdamW.
+    dropout : float | None
+        Overrides the checkpoint's `hidden_dropout_prob`, which also governs
+        the classification head while its own `classifier_dropout` is unset.
+        None keeps whatever the checkpoint was published with -- ChemBERTa's
+        0.144 was tuned for multi-task pretraining over millions of molecules,
+        which is a different overfitting regime from a 17k-row downstream fit,
+        so it is worth searching rather than inheriting.
     patience : int
         Epochs without test-loss improvement before early stopping.
     checkpoint : bool
@@ -195,6 +202,7 @@ class Model():
         warmup_ratio: float = 0.1,
         weight_decay: float = 0.01,
         llrd_decay: float = 0.9,
+        dropout: float | None = None,
         patience: int = 5,
         checkpoint: bool = True,
     ) -> None:
@@ -212,6 +220,7 @@ class Model():
         self.warmup_ratio = warmup_ratio
         self.weight_decay = weight_decay
         self.llrd_decay = llrd_decay
+        self.dropout = dropout
         self.patience = patience
         self.checkpoint = checkpoint
         self.device = DEVICE
@@ -219,12 +228,14 @@ class Model():
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_link)
         self.model = RobertaForSequenceClassification.from_pretrained(
-            model_link, num_labels=1
+            model_link, num_labels=1,
+            **({} if dropout is None else {"hidden_dropout_prob": dropout}),
         ).to(self.device)
         if reinit_n > 0:
             self._reinit_layers(reinit_n)
 
         self.train_df, self.test_df, self.valid_df = self._split(df)
+        self._init_head_bias()
         self.train_loader = self._dataloader(self.train_df, shuffle=True)
         self.test_loader = self._dataloader(self.test_df, shuffle=False)
         self.valid_loader = self._dataloader(self.valid_df, shuffle=False)
@@ -286,6 +297,23 @@ class Model():
                 p._is_hf_initialized = False
             layer.apply(self.model._init_weights)
         print(f"-- Re-initialised top {n} encoder layers")
+
+    def _init_head_bias(self) -> None:
+        """
+        Start the regression head predicting the training set's mean label
+        instead of zero.
+
+        The head is randomly initialised with a zero bias, so an untrained
+        model predicts about 0 against labels averaging -3.9 (-ln IC50). Over
+        half the initial loss is then pure intercept error, and it is that
+        offset -- not the chemistry -- which dominates the gradients reaching
+        the encoder during warmup, when the schedule is least able to absorb
+        them. Seeding the bias makes the first update about structure, and
+        leaves epoch -1 scoring near R2 = 0, which is the honest reference for
+        the pre-fine-tuning latent space rather than the -1.4 a zero bias gives.
+        """
+        with torch.no_grad():
+            self.model.classifier.out_proj.bias.fill_(self.train_df["labels"].mean())
 
     def _parameter_groups(self) -> list[dict]:
         """
@@ -358,7 +386,8 @@ class Model():
             "reinit_n": self.reinit_n, "lr": self.lr,
             "batch_size": self.batch_size, "num_epochs": self.num_epochs,
             "warmup_ratio": self.warmup_ratio, "weight_decay": self.weight_decay,
-            "llrd_decay": self.llrd_decay, "patience": self.patience,
+            "llrd_decay": self.llrd_decay, "dropout": self.dropout,
+            "patience": self.patience,
             "split_method": self.splitter.method,
             "distribution": self.splitter.distribution,
             "train_size": self.splitter.train_size,
