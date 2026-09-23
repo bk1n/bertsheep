@@ -26,6 +26,7 @@ def experiment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Experiment:
     monkeypatch.setattr(be, "EXPERIMENT_DIR", tmp_path)
     labels = np.random.default_rng(0).normal(6, 1, len(SMILES))
     frame = pd.DataFrame({"smiles": SMILES, "labels": labels})
+    frame.attrs = {"data_path": "test.tsv", "mutation": None}
     return Experiment(frame, "TEST", mutation=None, min_cluster_size=1)
 
 

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -88,7 +89,10 @@ def _unchanged(module: torch.nn.Module, snapshot: dict[str, torch.Tensor]) -> bo
 def frame() -> pd.DataFrame:
     """A tiny training frame in Data's output contract, with seeded labels."""
     labels = np.random.default_rng(0).normal(6, 1, len(SMILES))
-    return pd.DataFrame({"smiles": SMILES, "mutations": "", "labels": labels})
+    frame = pd.DataFrame({"smiles": SMILES, "mutations": "", "labels": labels})
+    # Data._preprocess records its source here, and Model writes it to config.json
+    frame.attrs = {"data_path": "test.tsv", "mutation": None}
+    return frame
 
 
 @pytest.fixture
@@ -317,3 +321,14 @@ def test_fit_without_checkpoints_still_evaluates(
     frozen.fit()
     assert not list(frozen.checkpoint_dir.glob("*.pt"))
     assert np.isfinite(frozen.evaluate()["rmse"])
+
+
+def test_config_records_what_rebuilds_the_split(model: Model) -> None:
+    """
+    config.json carries the source dump, mutation and min_cluster_size, which
+    together with splits.parquet are what rebuild the frames a run saw.
+    """
+    config = json.loads((model.model_dir / bm.CONFIG).read_text())
+    assert config["data_path"] == "test.tsv"
+    assert config["mutation"] is None
+    assert config["min_cluster_size"] == model.splitter.min_cluster_size

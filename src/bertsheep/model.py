@@ -168,7 +168,9 @@ class Model():
     Parameters
     ----------
     df : pd.DataFrame
-        Preprocessed frame with `smiles` and `labels` columns.
+        Preprocessed frame with `smiles` and `labels` columns, as returned by
+        Data._preprocess, whose `attrs` carry the `data_path` and `mutation`
+        it was built from into config.json.
     target : str
         Short target name, used in the run directory name.
     splitter : Splitters
@@ -255,6 +257,7 @@ class Model():
         logging.set_verbosity_error()
         self.target = target
         self.splitter = splitter
+        self.source = df.attrs
         self.seed = seed
         # Before the network exists, so the head's initialisation is seeded too.
         self.generator = self._seed(seed)
@@ -410,6 +413,9 @@ class Model():
         splitter's min_cluster_size filter drops molecules that the settings
         alone would not recover, and embeddings() across epochs has to see
         exactly the same molecules. split_frames() turns it back into frames.
+        data_path, mutation and min_cluster_size are recorded because together
+        they decide which molecules the split was drawn from: the first two
+        rebuild the preprocessed frame, the last drops whole clusters from it.
         """
         config = {
             "target": self.target, "model_link": self.model_link,
@@ -422,7 +428,11 @@ class Model():
             "distribution": self.splitter.distribution,
             "train_size": self.splitter.train_size,
             "test_size": self.splitter.test_size,
-            "split_seed": self.splitter.seed, "device": str(self.device),
+            "split_seed": self.splitter.seed,
+            "min_cluster_size": self.splitter.min_cluster_size,
+            "data_path": self.source["data_path"],
+            "mutation": self.source["mutation"],
+            "device": str(self.device),
         }
         (self.model_dir / CONFIG).write_text(json.dumps(config, indent=2))
         pd.concat([
