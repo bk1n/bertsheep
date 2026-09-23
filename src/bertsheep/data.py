@@ -307,6 +307,9 @@ class Data():
         Canonicalising before deduplicating means the same molecule written
         two ways collapses into one group. Selecting the mutation before
         canonicalising keeps the RDKit work to the rows actually kept.
+        The source dump and mutation ride along in `df.attrs` so anything
+        built from the frame, such as a Model's run record, can say which
+        data it came from without being handed the Data object as well.
         """
         df = self._load_cached()
         df = self._filter(df)
@@ -316,5 +319,6 @@ class Data():
         df = self._drop_acyclic(df)
         df = self._deduplicate(df)
         df = self._transform_labels(df)
+        df.attrs = {"data_path": str(self.data_path), "mutation": self.mutation}
         print(f"-- Training on a total dataset of {len(df)} labels")
         return df

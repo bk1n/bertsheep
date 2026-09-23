@@ -81,6 +81,7 @@ class Splitters:
         self.distribution = distribution
         self.train_size, self.test_size = train_size, test_size
         self.seed = seed
+        self.min_cluster_size = min_cluster_size
 
         smiles = list(smiles)
         # A matrix of the wrong size would otherwise cluster some other set of
