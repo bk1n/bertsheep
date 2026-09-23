@@ -224,8 +224,8 @@ def test_fit_stops_early_and_keeps_the_best_epoch(
 ) -> None:
     """
     With a scripted test loss, fit() stops patience epochs after the best one,
-    writes one history row and one checkpoint per epoch run -- epoch -1
-    included -- and keeps the best epoch's weights in memory.
+    writes one history row per epoch run, checkpoints epoch -1 and every
+    CHECKPOINT_EVERY-th epoch, and keeps the best epoch's weights in memory.
     """
     monkeypatch.setattr(model, "num_epochs", 10)
     monkeypatch.setattr(model, "patience", 3)
@@ -247,11 +247,11 @@ def test_fit_stops_early_and_keeps_the_best_epoch(
     assert history["epoch"].tolist() == [-1, 0, 1, 2, 3, 4]
     assert len(pd.read_csv(model.model_dir / bm.HISTORY)) == 6
     assert sorted(p.name for p in model.checkpoint_dir.glob("*.pt")) == [
-        f"epoch{epoch:03d}.pt" for epoch in range(5)
+        f"epoch{epoch:03d}.pt" for epoch in range(0, 5, bm.CHECKPOINT_EVERY)
     ] + [bm.INIT_CHECKPOINT]
     assert model.best_epoch == 1
     assert model.best_state is not None
-    assert torch.load(model._checkpoint_path(1))["loss"]["test"] == 2.0
+    assert torch.load(model._checkpoint_path(0))["loss"]["test"] == 3.0
 
 
 def test_fit_smoke(monkeypatch: pytest.MonkeyPatch, model: Model) -> None:
@@ -263,13 +263,15 @@ def test_fit_smoke(monkeypatch: pytest.MonkeyPatch, model: Model) -> None:
                "test_rmse", "test_r2", "valid_rmse", "valid_r2"]
     assert np.isfinite(history.loc[history["epoch"] >= 0, metrics]).all(axis=None)
     assert model._checkpoint_path(-1).exists()
-    assert model._checkpoint_path(1).exists()
+    assert model._checkpoint_path(0).exists()
 
 
 def test_checkpoint_round_trip_restores_weights(model: Model) -> None:
     """Loading a checkpoint undoes later training and returns its epoch."""
     before = _snapshot(model.model)
-    model._save_checkpoint(7, {"train": 0.5, "test": 0.5, "valid": 0.5})
+    # _save_checkpoint takes its losses from the latest history row
+    model.history.append({"train_loss": 0.5, "test_loss": 0.5, "valid_loss": 0.5})
+    model._save_checkpoint(7)
     model._train_epoch(0)
     assert model.load_checkpoint(model._checkpoint_path(7)) == 7
     assert _unchanged(model.model, before)

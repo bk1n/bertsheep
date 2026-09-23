@@ -22,6 +22,11 @@ from bertsheep.splitters import Splitters
 MODEL_DIR = Path("out/models")
 INIT_CHECKPOINT = "init.pt"  # epoch -1: the weights fine-tuning starts from
 EPOCH_CHECKPOINT = "epoch{:03d}.pt"
+# Epochs between kept checkpoints. At ~40 MB a file, one per epoch is ~3 GB a
+# run and ~1 TB across the experiment grid; every fourth still traces the
+# latent space through fine-tuning. Epoch -1 is kept regardless, as the RSA
+# baseline; the best epoch need not be, since evaluate() restores it from memory.
+CHECKPOINT_EVERY = 4
 CONFIG = "config.json"
 SPLITS = "splits.parquet"
 SPLIT_NAMES = ("train", "test", "valid")  # the order Splitters.split() deals in
@@ -222,11 +227,11 @@ class Model():
     patience : int
         Epochs without test-loss improvement before early stopping.
     checkpoint : bool
-        Write the weights every epoch. A hyperparameter search wants this off:
-        the weights are ~40 MB an epoch and a search keeps only the winning
-        *parameters*, refitting from them afterwards. evaluate() restores the
-        best epoch from memory rather than from disk, so a run fitted with
-        this off can still be evaluated.
+        Write the weights at epoch -1 and every CHECKPOINT_EVERY-th epoch. A
+        hyperparameter search wants this off: the weights are ~40 MB a file
+        and a search keeps only the winning *parameters*, refitting from them
+        afterwards. evaluate() restores the best epoch from memory rather than
+        from disk, so a run fitted with this off can still be evaluated.
     freeze : bool
         Train the regression head only, with the encoder's weights fixed at
         their pretrained values -- the pre-trained arm of the comparison. It
@@ -610,24 +615,38 @@ class Model():
         name = INIT_CHECKPOINT if epoch < 0 else EPOCH_CHECKPOINT.format(epoch)
         return self.checkpoint_dir / name
 
-    def _save_checkpoint(self, epoch: int, loss: dict[str, float]) -> None:
+    def _save_checkpoint(self, epoch: int) -> None:
         """
         Write the weights and the epoch's losses to a checkpoint. Optimiser and
         scheduler state are deliberately left out: the checkpoint is for scoring
-        and figures, not for resuming a run.
+        and figures, not for resuming a run. Losses come from the latest history
+        row, so this must follow _record_epoch for the same epoch.
 
         Parameters
         ----------
         epoch : int
             Epoch the weights were taken at, or -1 for the starting weights.
-        loss : dict[str, float]
-            Train, test and valid loss.
         """
+        row = self.history[-1]
         torch.save({
             "epoch": epoch,
-            "loss": loss,
+            "loss": {split: row[f"{split}_loss"] for split in ("train", "test", "valid")},
             "model": self.model.state_dict(),
         }, self._checkpoint_path(epoch))
+
+    def _checkpoint(self, epoch: int) -> None:
+        """
+        Save the epoch's weights if it is epoch -1 or on the CHECKPOINT_EVERY
+        interval. The series only has to trace the latent space through
+        fine-tuning, so early stopping landing off the interval loses nothing.
+
+        Parameters
+        ----------
+        epoch : int
+            Epoch just recorded, or -1 for the starting weights.
+        """
+        if self.checkpoint and (epoch < 0 or epoch % CHECKPOINT_EVERY == 0):
+            self._save_checkpoint(epoch)
 
     def load_checkpoint(self, path: Path) -> int:
         """
@@ -649,9 +668,8 @@ class Model():
 
     def _record_epoch(self, epoch: int, train_loss: float, start: float) -> float:
         """
-        Score test and valid, then log the epoch: a history row, a progress
-        line and, unless the run has checkpointing off, a checkpoint.
-        history.csv is rewritten every epoch so a run that crashes or is
+        Score test and valid, then log the epoch: a history row and a progress
+        line. history.csv is rewritten every epoch so a run that crashes or is
         interrupted still leaves a history alongside its checkpoints.
 
         Parameters
@@ -689,10 +707,6 @@ class Model():
               f"-- Test: {test_loss:.4f} (R2 {test_metrics['r2']:.3f}) "
               f"-- Valid: {valid_loss:.4f} (R2 {valid_metrics['r2']:.3f}) "
               f"-- {elapsed:.1f}s")
-        if self.checkpoint:
-            self._save_checkpoint(
-                epoch, {"train": train_loss, "test": test_loss, "valid": valid_loss}
-            )
         return test_loss
 
     def fit(self, callback: Callable[[int, float], None] | None = None
@@ -706,9 +720,10 @@ class Model():
         the latent-space comparison has its pre-fine-tuning reference (which
         differs from the published weights whenever reinit_n > 0) and the R2
         curve has its starting point. Epoch -1 is never a selection candidate.
-        Every epoch is checkpointed unless the run was built with checkpoint
-        off. The best epoch's weights are also kept in memory, on CPU, so
-        evaluate() never depends on which epochs happened to reach disk.
+        Unless the run was built with checkpoint off, epoch -1 and every
+        CHECKPOINT_EVERY-th epoch are checkpointed. The best epoch's weights
+        are kept in memory, on CPU, so evaluate() never depends on which
+        epochs happened to reach disk.
 
         Parameters
         ----------
@@ -735,13 +750,12 @@ class Model():
               ---- Frozen encoder: {self.freeze}
               ---- Output: {self.model_dir}""")
         self._record_epoch(-1, np.nan, time.time())
+        self._checkpoint(-1)
         best, stale = np.inf, 0
         for epoch in range(self.num_epochs):
             start = time.time()
             train_loss = self._train_epoch(epoch)
             test_loss = self._record_epoch(epoch, train_loss, start)
-            if callback is not None:
-                callback(epoch, test_loss)
 
             if test_loss < best - MIN_DELTA:
                 best, stale, self.best_epoch = test_loss, 0, epoch
@@ -749,9 +763,12 @@ class Model():
                                    for k, v in self.model.state_dict().items()}
             else:
                 stale += 1
-                if stale >= self.patience:
-                    print(f"-- Early stop: no improvement on {best:.4f} in {self.patience} epochs")
-                    break
+            self._checkpoint(epoch)
+            if callback is not None:
+                callback(epoch, test_loss)
+            if stale >= self.patience:
+                print(f"-- Early stop: no improvement on {best:.4f} in {self.patience} epochs")
+                break
         return pd.DataFrame(self.history)
 
     def evaluate(self) -> dict[str, float]:
