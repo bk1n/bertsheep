@@ -1,3 +1,4 @@
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -24,15 +25,15 @@ class Benchmark:
     Measure what one fit costs on this machine, so the experiment matrix is
     sized from timings rather than from guesses.
 
-    Produces one row per precision arm, bf16 autocast off and on: the shape
-    the representative split actually lands on, how much of the target is
+    Two benchmarks, run separately. epoch_time() times one fit at the
+    module's default precision, to size the trial budget. autocast() times
+    and scores the same fit with bf16 autocast off and on, to check the
+    speed-up does not cost accuracy. Each row carries the shape the
+    representative split actually lands on, how much of the target is
     one-off chemistry, how long an epoch takes, and where the losses stand
-    after the timed epochs. Both arms share the split and the model seed, so
-    head initialisation and batch order match and any gap in loss is down to
-    the arithmetic alone -- the speed-up is only worth taking if it does not
-    cost accuracy. Training is timed through Model's epoch and scoring
-    steps rather than through fit(), because fit() writes a checkpoint every
-    epoch and would put disk I/O inside the measurement.
+    after the timed epochs. Training is timed through Model's epoch and
+    scoring steps rather than through fit(), because fit() writes a
+    checkpoint every epoch and would put disk I/O inside the measurement.
 
     Parameters
     ----------
@@ -183,19 +184,26 @@ class Benchmark:
             return ({"autocast": autocast}
                     | self._split_diagnostics(model) | self._time_training(model))
 
-    def run(self) -> pd.DataFrame:
+    def _benchmark(self, autocasts: tuple[bool, ...], name: str) -> pd.DataFrame:
         """
-        Benchmark the representative split end to end, once in fp32 and once
-        under bf16 autocast, and write the rows to
-        out/benchmark/<timestamp>.csv. The dataset statistics are carried on
-        every row so a saved run is self-describing: a timing only means
-        something next to the frame it was measured on. On CPU autocast is a
-        no-op, so the two rows differ only by timing noise.
+        Run one arm per autocast setting on the representative split and write
+        the rows to out/benchmark/<name>-<timestamp>.csv. Every arm shares one
+        splitter and the model seed, so the rows differ only in precision. The
+        dataset statistics are carried on every row so a saved run is
+        self-describing: a timing only means something next to the frame it
+        was measured on.
+
+        Parameters
+        ----------
+        autocasts : tuple[bool, ...]
+            Autocast setting for each arm, one row each.
+        name : str
+            Benchmark name, used as the CSV filename prefix.
 
         Returns
         -------
         pd.DataFrame
-            One measurement row per precision arm, as written to the CSV.
+            One measurement row per arm, as written to the CSV.
         """
         stats = self.dataset()
         print(f"-- {self.target}: {stats['rows']} rows, {stats['ligands']} ligands, "
@@ -209,16 +217,41 @@ class Benchmark:
         results = pd.DataFrame([
             {"method": METHOD, "distribution": DISTRIBUTION}
             | self._arm(splitter, autocast) | stats
-            for autocast in (False, True)
+            for autocast in autocasts
         ])
 
         BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
-        path = BENCHMARK_DIR / f"{datetime.now():%Y-%m-%d-%H%M%S}.csv"
+        path = BENCHMARK_DIR / f"{name}-{datetime.now():%Y-%m-%d-%H%M%S}.csv"
         results.to_csv(path, index=False)
         print(results.T.to_string(header=False))
         print(f"-- Written to {path}")
         return results
 
+    def epoch_time(self) -> pd.DataFrame:
+        """
+        Seconds per epoch, peak VRAM and projected fit time at the precision
+        real runs use, which is what the trial budget is sized from.
+
+        Returns
+        -------
+        pd.DataFrame
+            The single measurement row, as written to the CSV.
+        """
+        return self._benchmark((model_module.AUTOCAST,), "epoch-time")
+
+    def autocast(self) -> pd.DataFrame:
+        """
+        The same fit in fp32 and under bf16 autocast, so the speed and memory
+        saved can be read next to any change in train loss, test loss and test
+        R2. On CPU autocast is a no-op, so the two rows differ only by timing
+        noise.
+
+        Returns
+        -------
+        pd.DataFrame
+            One row for fp32 and one for bf16, as written to the CSV.
+        """
+        return self._benchmark((False, True), "autocast")
 
 if __name__ == "__main__":
     from bertsheep.data import Data
@@ -227,4 +260,6 @@ if __name__ == "__main__":
     start = time.time()
     df = Data("data/BindingDB_All_202609_tsv/BindingDB_All.tsv", target)._preprocess()
     print(f"-- Preprocessed in {time.time() - start:.0f}s")
-    Benchmark(df, target).run()
+    # epoch_time (default) or autocast, e.g. `python -m bertsheep.benchmark autocast`
+    benchmark = sys.argv[1] if len(sys.argv) > 1 else "epoch_time"
+    getattr(Benchmark(df, target), benchmark)()
