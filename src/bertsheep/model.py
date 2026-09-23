@@ -186,8 +186,16 @@ class Model():
     checkpoint : bool
         Write the weights every epoch. A hyperparameter search wants this off:
         the weights are ~40 MB an epoch and a search keeps only the winning
-        *parameters*, refitting from them afterwards. evaluate() reads the best
-        epoch's checkpoint, so a run fitted with this off cannot be evaluated.
+        *parameters*, refitting from them afterwards. evaluate() restores the
+        best epoch from memory rather than from disk, so a run fitted with
+        this off can still be evaluated.
+    freeze : bool
+        Train the regression head only, with the encoder's weights fixed at
+        their pretrained values -- the pre-trained arm of the comparison. It
+        shares the loop, schedule, early stopping and selection with the
+        fine-tuned arm, so the two differ in which weights move and nothing
+        else. Expects reinit_n = 0, since a re-initialised layer that cannot
+        train is just noise in front of the head.
     """
     def __init__(
         self,
@@ -206,6 +214,7 @@ class Model():
         dropout: float | None = None,
         patience: int = 5,
         checkpoint: bool = True,
+        freeze: bool = False,
     ) -> None:
         logging.set_verbosity_error()
         self.target = target
@@ -224,6 +233,7 @@ class Model():
         self.dropout = dropout
         self.patience = patience
         self.checkpoint = checkpoint
+        self.freeze = freeze
         self.device = DEVICE
         self.model_dir, self.checkpoint_dir = self._create_model_dir()
 
@@ -234,6 +244,10 @@ class Model():
         ).to(self.device)
         if reinit_n > 0:
             self._reinit_layers(reinit_n)
+        if freeze:
+            # With no encoder parameter requiring grad, autograd builds no graph
+            # through it, so a frozen epoch skips the encoder's backward pass.
+            self.model.roberta.requires_grad_(False)
 
         self.train_df, self.test_df, self.valid_df = self._split(df)
         self._init_head_bias()
@@ -252,16 +266,18 @@ class Model():
         )
         self.history = []
         self.best_epoch = None  # set by fit(), read by evaluate()
+        self.best_state = None  # best epoch's weights on CPU, for evaluate()
         # Leave the model in eval mode: dropout, normalise batch off by default
         self.model.eval()
 
     def _create_model_dir(self) -> tuple[Path, Path]:
         """
         One directory per run, named for the target, the split it was scored
-        on and the start time, with a checkpoints/ subdirectory. Nothing is
-        overwritten between runs, so a sweep leaves one comparable history.csv
-        per configuration -- and the split is in the name because a number from
-        one split method is not comparable to a number from another.
+        on, whether the encoder was frozen and the start time, with a
+        checkpoints/ subdirectory. Nothing is overwritten between runs, so a
+        sweep leaves one comparable history.csv per configuration -- and the
+        split is in the name because a number from one split method is not
+        comparable to a number from another.
 
         Returns
         -------
@@ -270,6 +286,7 @@ class Model():
         """
         model_dir = MODEL_DIR / (f"{self.target}-{self.splitter.method}-"
                                  f"{self.splitter.distribution}-"
+                                 f"{'frozen' if self.freeze else 'finetuned'}-"
                                  f"{datetime.now():%Y-%m-%d-%H%M%S}")
         checkpoint_dir = model_dir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -388,7 +405,7 @@ class Model():
             "batch_size": self.batch_size, "num_epochs": self.num_epochs,
             "warmup_ratio": self.warmup_ratio, "weight_decay": self.weight_decay,
             "llrd_decay": self.llrd_decay, "dropout": self.dropout,
-            "patience": self.patience,
+            "patience": self.patience, "freeze": self.freeze,
             "split_method": self.splitter.method,
             "distribution": self.splitter.distribution,
             "train_size": self.splitter.train_size,
@@ -465,7 +482,10 @@ class Model():
         """
         One pass over the training set. Sets train() itself so dropout state
         follows the operation rather than the order the methods happen to be
-        called in.
+        called in. A frozen encoder is put back in eval mode: with its dropout
+        on, the head would see differently noised features every epoch from
+        weights that never change, and the frozen arm would no longer be a
+        fixed pretrained representation with a head trained on it.
 
         Parameters
         ----------
@@ -478,6 +498,8 @@ class Model():
             Sample-weighted mean training loss over the epoch.
         """
         self.model.train()
+        if self.freeze:
+            self.model.roberta.eval()
         total = 0.0
         for i, (input_ids, mask, labels) in enumerate(self.train_loader):
             input_ids, mask, labels = (
@@ -664,8 +686,8 @@ class Model():
         differs from the published weights whenever reinit_n > 0) and the R2
         curve has its starting point. Epoch -1 is never a selection candidate.
         Every epoch is checkpointed unless the run was built with checkpoint
-        off; the best one is recorded as best_epoch rather than copied to a
-        separate file.
+        off. The best epoch's weights are also kept in memory, on CPU, so
+        evaluate() never depends on which epochs happened to reach disk.
 
         Parameters
         ----------
@@ -689,6 +711,7 @@ class Model():
               ---- Loss: {self.loss_fn}
               ---- Split: {self.splitter.method} ({self.splitter.distribution}-distribution)
               ---- Reinit layers: {self.reinit_n}
+              ---- Frozen encoder: {self.freeze}
               ---- Output: {self.model_dir}""")
         self._record_epoch(-1, np.nan, time.time())
         best, stale = np.inf, 0
@@ -701,6 +724,8 @@ class Model():
 
             if test_loss < best - MIN_DELTA:
                 best, stale, self.best_epoch = test_loss, 0, epoch
+                self.best_state = {k: v.detach().cpu().clone()
+                                   for k, v in self.model.state_dict().items()}
             else:
                 stale += 1
                 if stale >= self.patience:
@@ -711,7 +736,7 @@ class Model():
     def evaluate(self) -> dict[str, float]:
         """
         Final read of the held-out valid split, from the best epoch's
-        checkpoint rather than the last epoch. Kept out of fit() because it
+        weights rather than the last epoch's. Kept out of fit() because it
         should be run once, after any hyperparameter search is finished --
         calling it inside the loop is how the legacy code spent its held-out
         set on model selection.
@@ -722,10 +747,10 @@ class Model():
             RMSE and R2 on the valid split; the predictions behind them are
             written to valid_predictions.csv in the run directory.
         """
-        epoch = self.load_checkpoint(self._checkpoint_path(self.best_epoch))
+        self.model.load_state_dict(self.best_state)
         loss, preds, labels = self._score(self.valid_loader)
         metrics = self._metrics(preds, labels)
-        print(f"-- Valid (checkpoint from epoch {epoch}) -- Loss: {loss:.4f} "
+        print(f"-- Valid (weights from epoch {self.best_epoch}) -- Loss: {loss:.4f} "
               f"-- RMSE: {metrics['rmse']:.3f} -- R2: {metrics['r2']:.3f}")
         pd.DataFrame({"labels": labels, "preds": preds}).to_csv(
             self.model_dir / PREDICTIONS, index=False
