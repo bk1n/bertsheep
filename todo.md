@@ -6,7 +6,7 @@ not do yet, at the level of "what needs building", not how.
 ## Before any real run
 
 - [ ] Run `benchmark.py` on the real EGFR frame — seconds/epoch and peak VRAM on the 4060 decide the Optuna trial budget and whether cloud compute is needed
-    - [ ] benchmark.py: add benchmark of train loss vs test loss w/ autocast on + off (are speed up improvements costing performance)
+    - [x] benchmark.py: add benchmark of train loss vs test loss w/ autocast on + off (are speed up improvements costing performance)
 - [x] data.py: 
     - [x] add parquet caching of data_path target data frames; if fetched again, use parquet rather than loading full CSV; save to out/.cache/
     - [x] add mutation argument to filter frame by mutation; use "wildtype" as wildtype arg; post-caching to parquet
@@ -18,12 +18,23 @@ not do yet, at the level of "what needs building", not how.
 - [x] Ensure appropriate epoch-level logging of necessary elements: per epoch states (to fetch embeddings later), losses, etc.
     - [x] model.py: Build method to get embedding from the .pt model state_dict's weights
     - [x] Attention maps for Q2 are not stored; recompute from checkpoints (`output_attentions=True`) when the RSA/UMAP work needs them
+- [x] benchmark.py
+    - [x] Add benchmarking of autocast bf16 vs none - does it degrade performance?
+- [x] data.py
+    - [x] Add warning when mutation=None, stating that mutations are grouped together and may affect splitting validity
 - [ ] model.py
+    - [ ] Restore `Model._seed` — lost in the `b236c05` auto-merge, which kept every reference to it (`MODEL_SEED`, the `seed` argument, the call at `model.py:200`, `generator=` on the train loader) but took the other branch's side of the hunk holding the definition. `Model(...)` raises `AttributeError` before it builds the network, so nothing downstream runs. The method is at `1d42f3a:src/bertsheep/model.py:259`
+    - [ ] Replace `valid_predictions.csv` with saved split indices — `splits.parquet` dumps all three frames per run, duplicating the preprocessed data across the 360-run grid, and the predictions CSV only ever covers the best epoch's valid split. Save the positional indices plus a method to recover the split frames from them; predictions for any split at any epoch then come from a checkpoint forward pass, which is seconds on the 4060 and the path `embeddings()` already takes
+    - [ ] Checkpoint every 4 epochs rather than every one — 40 MB per file is ~3.2 GB per run and ~1 TB across the grid. Early stopping does not land on a multiple of 4, so `evaluate()` will ask for a `best_epoch` checkpoint that was never written: keep epoch -1 and the running best as well as the every-fourth ones
+    - [ ] Record `min_cluster_size` in `config.json` — it is a split setting like `train_size` and `split_seed`, and it is the one that decides which molecules are dropped entirely. With index-only splits the frame cannot be rebuilt without it, nor without `data_path` and `mutation`, which are also unrecorded
+    - [ ] Implement early stopping
+- [ ] tuning.py
     - [ ] Implement Optuna hyperparameter optimisation w/ TPESampler
 - [ ] experiment.py
     - [ ] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
     - [ ] add tests to ensure methods output consistently everytime
     - [ ] implement a suite of experiments that answer questions in README.md
+    - [ ] don't implement scaffold splits; Butina splits are working much better than BM scaffolds for this; doesn't need to be comprehensive
 
 ## Question 1 — does fine-tuning help?
 
