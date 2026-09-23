@@ -2,6 +2,7 @@ import csv
 import os
 import re
 import subprocess
+import warnings
 from datetime import datetime
 from pathlib import Path
 
@@ -213,6 +214,13 @@ class Data():
         misordered variant would otherwise surface much later as a crash in
         splitting or training.
 
+        With mutation None it warns instead: deduplication keys on (smiles,
+        mutations), so a ligand measured against several variants stays as
+        several rows with different labels. Any split that does not group on
+        the molecule (random, or an in-distribution cluster split) can then
+        put the same SMILES on both sides, and the test score partly measures
+        recall of a seen molecule rather than generalisation to a new one.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -224,6 +232,13 @@ class Data():
             Rows for the selected variant, or df unchanged if mutation is None.
         """
         if self.mutation is None:
+            warnings.warn(
+                f"mutation=None pools {df['mutations'].nunique()} variants of "
+                f"{self.target}; a ligand measured against several stays as several "
+                "rows, which can leak the same molecule across a split. Pass "
+                f"mutation={WILD_TYPE!r} or a mutations string to keep one variant.",
+                stacklevel=2,
+            )
             return df
         wanted = "" if self.mutation == WILD_TYPE else self.mutation
         df = df[df["mutations"] == wanted]
