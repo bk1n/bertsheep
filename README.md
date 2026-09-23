@@ -51,7 +51,7 @@ whole regions of chemical space.
 
 ### Cross-validation
 
-Due to computational limitations (this is trained locally on an RTX 4060), we will sample run Optuna w/ TPESampler once per seed, optimising hyperparameters on train + test data, with held-out evaluation set, and share these hyperparameters across runs.
+Due to computational limitations (this is trained locally on an RTX 4060), we run Optuna w/ TPESampler once, on the first seed's split, optimising hyperparameters on train + test data with the evaluation set held out. The remaining seeds reuse those hyperparameters.
 
 In-distribution: for both Bemis-Murcko and Butina splits, we use stratified splitting by "scaffolds" to ensure equal representation of scaffolds.
 
@@ -64,10 +64,8 @@ All experiments are repeated 30 times. A repeat is a new seed on both the splitt
 ## Figures
 ### Question 1
 Multi-panel:\
-(a) in-distribution boxplot: x: model (baseline, pre-trained, fine-tuned), y: R2, color: scaffold-split strategy\
-(b) in-distribution loss-curve for fine-tuned model: x: epoch, y: R2, color: scaffold-split strategy\
-(c) out-of-distribution boxplot: x: model (baseline, pre-trained, fine-tuned), y: R2, color: scaffold-split strategy\
-(d) out-of-distribution loss-curve for fine-tuned model: x: epoch, y: R2, color: scaffold-split strategy
+(a) boxplot: x: model (baseline, pre-trained, fine-tuned), y: R2, color: in vs out-of-distribution\
+(b) R2-curve for fine-tuned model: x: epoch, y: R2, color: in vs out-of-distribution
 
 ## Question 2
 Multi-panel:\
@@ -77,8 +75,6 @@ Multi-panel:\
 Multi-panel GIF (2x3):\
 x: first layer, middle layer, bottom layer\
 y: in-distribution, out-of-distribution
-
-Two separate figures: one for each scaffold-splitting strategy.
 
 > GIF creation:
 > 1. Capture each (a) embedding layer and (b) attention layer at each fine-tuning epoch.
