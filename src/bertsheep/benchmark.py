@@ -262,4 +262,5 @@ if __name__ == "__main__":
     print(f"-- Preprocessed in {time.time() - start:.0f}s")
     # epoch_time (default) or autocast, e.g. `python -m bertsheep.benchmark autocast`
     benchmark = sys.argv[1] if len(sys.argv) > 1 else "epoch_time"
-    getattr(Benchmark(df, target), benchmark)()
+    epochs = 50 if benchmark == 'autocast' else TIMED_EPOCHS
+    getattr(Benchmark(df, target, epochs), benchmark)()
