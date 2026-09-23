@@ -24,6 +24,10 @@ ARMS = ("baseline", "pretrained", "finetuned")
 N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
 # The search runs once, on the first replicate's split; every seed reuses it.
 TUNING_SEED = 0
+# The replicate whose fine-tuned runs keep every epoch's weights, for the
+# latent-space GIF. One run per distribution is all the animation draws on;
+# the other seeds keep only the starting and best weights RSA compares.
+GIF_SEED = 0
 MIN_CLUSTER_SIZE = 10
 MUTATION = WILD_TYPE
 
@@ -178,7 +182,8 @@ class Experiment:
         hyperparameters tuned for fine-tuning. The frozen arm takes them
         without `reinit_n`, since re-initialising a layer it cannot train
         would only feed the head noise. Only fine-tuned runs write checkpoints:
-        a frozen encoder's weights are the published ones at every epoch.
+        a frozen encoder's weights are the published ones at every epoch. Of
+        those, only GIF_SEED's keep every epoch rather than just the ends.
 
         Parameters
         ----------
@@ -196,7 +201,9 @@ class Experiment:
         if freeze:
             params = {k: v for k, v in params.items() if k != "reinit_n"}
         model = Model(self.df, self.target, splitter, seed=splitter.seed,
-                      checkpoint=not freeze, freeze=freeze, **params)
+                      checkpoint=not freeze,
+                      trajectory=splitter.seed == GIF_SEED,
+                      freeze=freeze, **params)
         model.fit()
         metrics = model.evaluate()
         return {
