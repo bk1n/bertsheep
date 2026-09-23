@@ -26,7 +26,7 @@ uv add <pkg>                 # add a dependency (updates pyproject.toml + uv.loc
 ./fetch.sh                   # rsync the BindingDB dump from Windows into ./data
 ```
 
-There is no test suite, linter config, or CLI entry point beyond the stub yet. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
+Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. There is no linter config or CLI entry point beyond the stub yet. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
 
 Typical interactive use, since `Data` has no public runner yet:
 

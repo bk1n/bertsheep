@@ -112,6 +112,26 @@ def model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, frame: pd.DataFrame) 
     )
 
 
+@pytest.fixture
+def frozen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, frame: pd.DataFrame) -> Model:
+    """
+    The same small CPU Model with its encoder frozen and checkpointing off, as
+    the pre-trained arm runs it.
+    """
+    monkeypatch.setattr(bm, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(bm, "DEVICE", torch.device("cpu"))
+    return Model(
+        frame,
+        "TEST",
+        Splitters(frame["smiles"], "scaffold", "in"),
+        model_link=MODEL_LINK,
+        batch_size=BATCH_SIZE,
+        num_epochs=NUM_EPOCHS,
+        checkpoint=False,
+        freeze=True,
+    )
+
+
 def test_parameter_groups_cover_each_parameter_once(model: Model) -> None:
     """
     Every parameter is in exactly one group, only biases and LayerNorm weights
@@ -195,19 +215,20 @@ def test_scoring_a_loader_leaves_the_weights_alone(model: Model) -> None:
     assert loss == pytest.approx(np.mean((preds - labels) ** 2), rel=1e-5)
 
 
-def test_fit_stops_early_and_checkpoints_the_best_epoch(
+def test_fit_stops_early_and_keeps_the_best_epoch(
     monkeypatch: pytest.MonkeyPatch, model: Model
 ) -> None:
     """
     With a scripted test loss, fit() stops patience epochs after the best one,
-    writes one history row and one checkpoint per epoch run, and keeps the best
-    epoch's weights.
+    writes one history row and one checkpoint per epoch run -- epoch -1
+    included -- and keeps the best epoch's weights in memory.
     """
     monkeypatch.setattr(model, "num_epochs", 10)
     monkeypatch.setattr(model, "patience", 3)
-    # Early stopping and best.pt key off the test loader, so that is the loss
+    # Early stopping and selection key off the test loader, so that is the loss
     # worth scripting; valid's is held flat to prove it does not drive either.
-    test_losses = iter([3.0, 2.0, 2.5, 2.6, 2.7, 1.0])
+    # The first loss is epoch -1's, which is scored but never selected.
+    test_losses = iter([0.5, 3.0, 2.0, 2.5, 2.6, 2.7, 1.0])
     labels = model.valid_df["labels"].to_numpy()
     monkeypatch.setattr(model, "_train_epoch", lambda epoch: 0.0)
     monkeypatch.setattr(
@@ -219,43 +240,44 @@ def test_fit_stops_early_and_checkpoints_the_best_epoch(
     )
 
     history = model.fit()
-    assert history["epoch"].tolist() == [0, 1, 2, 3, 4]
-    assert len(pd.read_csv(model.model_dir / bm.HISTORY)) == 5
-    assert sorted(p.name for p in model.checkpoint_dir.glob("epoch*.pt")) == [
+    assert history["epoch"].tolist() == [-1, 0, 1, 2, 3, 4]
+    assert len(pd.read_csv(model.model_dir / bm.HISTORY)) == 6
+    assert sorted(p.name for p in model.checkpoint_dir.glob("*.pt")) == [
         f"epoch{epoch:03d}.pt" for epoch in range(5)
-    ]
-    checkpoint = torch.load(model.checkpoint_dir / bm.CHECKPOINT)
-    assert checkpoint["epoch"] == 1
-    assert checkpoint["loss"]["test"] == 2.0
+    ] + [bm.INIT_CHECKPOINT]
+    assert model.best_epoch == 1
+    assert model.best_state is not None
+    assert torch.load(model._checkpoint_path(1))["loss"]["test"] == 2.0
 
 
 def test_fit_smoke(monkeypatch: pytest.MonkeyPatch, model: Model) -> None:
-    """Two real epochs run end to end and leave a history and a checkpoint."""
+    """Two real epochs run end to end and leave a history and checkpoints."""
     monkeypatch.setattr(model, "num_epochs", 2)
     history = model.fit()
-    assert len(history) == 2
+    assert len(history) == 3  # epoch -1 and two trained epochs
     metrics = ["train_loss", "test_loss", "valid_loss",
                "test_rmse", "test_r2", "valid_rmse", "valid_r2"]
-    assert np.isfinite(history[metrics]).all(axis=None)
-    assert (model.checkpoint_dir / bm.CHECKPOINT).exists()
+    assert np.isfinite(history.loc[history["epoch"] >= 0, metrics]).all(axis=None)
+    assert model._checkpoint_path(-1).exists()
+    assert model._checkpoint_path(1).exists()
 
 
 def test_checkpoint_round_trip_restores_weights(model: Model) -> None:
     """Loading a checkpoint undoes later training and returns its epoch."""
     before = _snapshot(model.model)
-    model._save_checkpoint(bm.CHECKPOINT, 7, {"train": 0.5, "test": 0.5, "valid": 0.5})
+    model._save_checkpoint(7, {"train": 0.5, "test": 0.5, "valid": 0.5})
     model._train_epoch(0)
-    assert model.load_checkpoint(model.checkpoint_dir / bm.CHECKPOINT) == 7
+    assert model.load_checkpoint(model._checkpoint_path(7)) == 7
     assert _unchanged(model.model, before)
 
 
-def test_evaluate_scores_the_checkpoint_not_the_last_weights(model: Model) -> None:
+def test_evaluate_scores_the_best_weights_not_the_last(model: Model) -> None:
     """
-    evaluate() predicts with the checkpointed weights even after training has
+    evaluate() predicts with the best epoch's weights even after training has
     moved on, and writes those predictions alongside the run. It reads the valid
     split, which is the one held out of selection.
     """
-    model._save_checkpoint(bm.CHECKPOINT, 0, {"train": 1.0, "test": 1.0, "valid": 1.0})
+    model.best_epoch, model.best_state = 0, _snapshot(model.model)
     _, expected, _ = model._score(model.valid_loader)
     model._train_epoch(0)
     metrics = model.evaluate()
@@ -263,3 +285,27 @@ def test_evaluate_scores_the_checkpoint_not_the_last_weights(model: Model) -> No
     written = pd.read_csv(model.model_dir / bm.PREDICTIONS)
     assert np.allclose(written["preds"], expected, atol=1e-6)
     assert np.allclose(written["labels"], model.valid_df["labels"])
+
+
+def test_frozen_epoch_trains_the_head_only(frozen: Model) -> None:
+    """
+    A frozen epoch leaves every encoder weight where it was, moves the head,
+    and keeps the encoder's dropout off while the head's is on.
+    """
+    encoder = _snapshot(frozen.model.roberta)
+    head = _snapshot(frozen.model.classifier)
+    frozen._train_epoch(0)
+    assert _unchanged(frozen.model.roberta, encoder)
+    assert not _unchanged(frozen.model.classifier, head)
+    assert not frozen.model.roberta.training
+    assert frozen.model.classifier.training
+
+
+def test_fit_without_checkpoints_still_evaluates(
+    monkeypatch: pytest.MonkeyPatch, frozen: Model
+) -> None:
+    """With checkpointing off nothing reaches disk, and evaluate() still runs."""
+    monkeypatch.setattr(frozen, "num_epochs", 2)
+    frozen.fit()
+    assert not list(frozen.checkpoint_dir.glob("*.pt"))
+    assert np.isfinite(frozen.evaluate()["rmse"])
