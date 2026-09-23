@@ -25,7 +25,7 @@ not do yet, at the level of "what needs building", not how.
 - [ ] model.py
     - [ ] Restore `Model._seed` — lost in the `b236c05` auto-merge, which kept every reference to it (`MODEL_SEED`, the `seed` argument, the call at `model.py:200`, `generator=` on the train loader) but took the other branch's side of the hunk holding the definition. `Model(...)` raises `AttributeError` before it builds the network, so nothing downstream runs. The method is at `1d42f3a:src/bertsheep/model.py:259`
     - [ ] Replace `valid_predictions.csv` with saved split indices — `splits.parquet` dumps all three frames per run, duplicating the preprocessed data across the 360-run grid, and the predictions CSV only ever covers the best epoch's valid split. Save the positional indices plus a method to recover the split frames from them; predictions for any split at any epoch then come from a checkpoint forward pass, which is seconds on the 4060 and the path `embeddings()` already takes
-    - [ ] Checkpoint every 4 epochs rather than every one — 40 MB per file is ~3.2 GB per run and ~1 TB across the grid. Early stopping does not land on a multiple of 4, so `evaluate()` will ask for a `best_epoch` checkpoint that was never written: keep epoch -1 and the running best as well as the every-fourth ones
+    - [x] Checkpoint every 4 epochs rather than every one — 40 MB per file is ~3.2 GB per run and ~1 TB across the grid. Early stopping does not land on a multiple of 4, so `evaluate()` will ask for a `best_epoch` checkpoint that was never written: keep epoch -1 and the running best as well as the every-fourth ones
     - [ ] Record `min_cluster_size` in `config.json` — it is a split setting like `train_size` and `split_seed`, and it is the one that decides which molecules are dropped entirely. With index-only splits the frame cannot be rebuilt without it, nor without `data_path` and `mutation`, which are also unrecorded
     - [ ] Implement early stopping
 - [ ] tuning.py
@@ -55,7 +55,7 @@ not do yet, at the level of "what needs building", not how.
 - [ ] Rotate the W&B API key still in git history
 - [ ] Untrack the 12 committed `.pyc` files
 - [ ] Make the BindingDB download reproducible (currently rsync from a local Windows path)
-- [ ] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap
+- [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt`, every `CHECKPOINT_EVERY`-th epoch and the running best only: at most `num_epochs / 4 + 2` files a run)
 - [x] `Eda` UMAP split plots call the removed `Chemist.split_groups`; point them at `Splitters`
 - [ ] `eda.py` is the only module in `src/` with no type hints — the methods touched by the `Splitters` port have them, the rest do not
 - [ ] `eda.py`, `model.py` and `benchmark.py` each end in a `__main__` block with the target and the dump path as literals, which is the legacy pattern this repo is undoing

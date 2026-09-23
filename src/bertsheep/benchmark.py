@@ -32,8 +32,8 @@ class Benchmark:
     representative split actually lands on, how much of the target is
     one-off chemistry, how long an epoch takes, and where the losses stand
     after the timed epochs. Training is timed through Model's epoch and
-    scoring steps rather than through fit(), because fit() writes a
-    checkpoint every epoch and would put disk I/O inside the measurement.
+    scoring steps rather than through fit(), because fit() writes
+    checkpoints and would put disk I/O inside the measurement.
 
     Parameters
     ----------
