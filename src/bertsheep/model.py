@@ -24,8 +24,8 @@ INIT_CHECKPOINT = "init.pt"  # epoch -1: the weights fine-tuning starts from
 EPOCH_CHECKPOINT = "epoch{:03d}.pt"
 CONFIG = "config.json"
 SPLITS = "splits.parquet"
+SPLIT_NAMES = ("train", "test", "valid")  # the order Splitters.split() deals in
 HISTORY = "history.csv"
-PREDICTIONS = "valid_predictions.csv"
 
 # Tokeniser truncation length. Data.MAX_SMILES_LENGTH caps SMILES at 128
 # *characters*, which is a looser bound than 128 tokens, so truncation is rare.
@@ -74,9 +74,9 @@ def embeddings(checkpoint: Path, smiles: Iterable[str],
     """
     Per-layer molecule embeddings from a checkpoint's weights, for comparing
     the latent space across epochs. A module-level function rather than a
-    Model method because it needs only a run directory: config.json gives
-    `model_link` and splits.parquet gives the SMILES, so no splitter or
-    training frame has to be rebuilt to read finished runs.
+    Model method because it needs only a run directory and the preprocessed
+    frame: config.json gives `model_link` and split_frames() gives the SMILES,
+    so no splitter has to be rebuilt to read finished runs.
 
     Each layer is mean-pooled over the attention mask rather than read at the
     `<s>` token, which RoBERTa only trains through the classification head and
@@ -87,7 +87,8 @@ def embeddings(checkpoint: Path, smiles: Iterable[str],
     checkpoint : Path
         Checkpoint written by Model, e.g. `init.pt` or `epoch007.pt`.
     smiles : Iterable[str]
-        Molecules to embed, typically `splits.parquet["smiles"]`.
+        Molecules to embed, typically the `smiles` column of a frame from
+        split_frames().
     model_link : str
         Hugging Face ID the run was fine-tuned from, which fixes the
         architecture and tokeniser the weights load into.
@@ -121,6 +122,41 @@ def embeddings(checkpoint: Path, smiles: Iterable[str],
         weights = mask.unsqueeze(-1).float()  # (batch, seq, 1), broadcast over layers
         pooled.append(((hidden * weights).sum(2) / weights.sum(1)).cpu())
     return torch.cat(pooled, dim=1).numpy()
+
+
+def split_frames(
+    df: pd.DataFrame, model_dir: Path
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Rebuild a run's train, test and valid frames from the positional indices
+    in its splits.parquet. A run stores indices rather than frames so the
+    preprocessed data is not copied into every directory of the grid; the
+    frames, and predictions for any split at any epoch via a checkpoint
+    forward pass, are recovered from the one preprocessed frame instead.
+    Model builds its own splits through here too, so a recovered split is the
+    one that was trained on by construction rather than by agreement.
+
+    The indices are taken with iloc because Splitters deals positions -- a
+    preprocessed frame carries the raw dump's row numbers as its index, which
+    .loc would read as labels.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Preprocessed frame the run was split over, in the same order.
+    model_dir : Path
+        Run directory holding splits.parquet.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
+        Train, test and valid frames, rows in the order the splitter dealt them.
+    """
+    splits = pd.read_parquet(model_dir / SPLITS)
+    train, test, valid = (
+        df.iloc[splits.loc[splits["split"] == name, "row"]] for name in SPLIT_NAMES
+    )
+    return train, test, valid
 
 
 class Model():
@@ -249,12 +285,12 @@ class Model():
             # through it, so a frozen epoch skips the encoder's backward pass.
             self.model.roberta.requires_grad_(False)
 
-        self.train_df, self.test_df, self.valid_df = self._split(df)
+        self._save_run_record()
+        self.train_df, self.test_df, self.valid_df = split_frames(df, self.model_dir)
         self._init_head_bias()
         self.train_loader = self._dataloader(self.train_df, shuffle=True)
         self.test_loader = self._dataloader(self.test_df, shuffle=False)
         self.valid_loader = self._dataloader(self.valid_df, shuffle=False)
-        self._save_run_record()
 
         self.loss_fn = LOSS_FN()
         self.optimiser = torch.optim.AdamW(self._parameter_groups(), lr=self.lr)
@@ -364,40 +400,16 @@ class Model():
             })
         return groups
 
-    def _split(
-        self, df: pd.DataFrame
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        Cut the frame three ways with the run's splitter.
-
-        Splitters deals positional indices, so the frame is taken with iloc --
-        a preprocessed frame carries the raw dump's row numbers as its index,
-        which .loc would read as labels.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            Preprocessed frame with `smiles` and `labels` columns, in the order
-            the splitter was built over.
-
-        Returns
-        -------
-        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
-            Train, test and valid frames.
-        """
-        train, test, valid = (df.iloc[index] for index in self.splitter.split())
-        return train, test, valid
-
     def _save_run_record(self) -> None:
         """
         Write what the run was, before it is trained, so a finished run
         directory can be analysed without the objects that built it.
         config.json holds the hyperparameters and split settings behind every
         number in history.csv. splits.parquet holds the split membership
-        itself, because the splitter's min_cluster_size filter drops molecules
-        that the settings alone would not recover, and embeddings() across
-        epochs has to see exactly the same molecules. The source frame's index
-        is kept so rows can be joined back to the preprocessed data.
+        itself, as positional indices into the preprocessed frame, because the
+        splitter's min_cluster_size filter drops molecules that the settings
+        alone would not recover, and embeddings() across epochs has to see
+        exactly the same molecules. split_frames() turns it back into frames.
         """
         config = {
             "target": self.target, "model_link": self.model_link,
@@ -414,10 +426,9 @@ class Model():
         }
         (self.model_dir / CONFIG).write_text(json.dumps(config, indent=2))
         pd.concat([
-            self.train_df.assign(split="train"),
-            self.test_df.assign(split="test"),
-            self.valid_df.assign(split="valid"),
-        ]).to_parquet(self.model_dir / SPLITS)
+            pd.DataFrame({"row": index, "split": name})
+            for name, index in zip(SPLIT_NAMES, self.splitter.split())
+        ]).to_parquet(self.model_dir / SPLITS, index=False)
 
     def _seed(self, seed: int) -> torch.Generator:
         """
@@ -744,17 +755,15 @@ class Model():
         Returns
         -------
         dict[str, float]
-            RMSE and R2 on the valid split; the predictions behind them are
-            written to valid_predictions.csv in the run directory.
+            RMSE and R2 on the valid split. Predictions are not saved; any
+            split at any epoch is recovered by a checkpoint forward pass over
+            split_frames().
         """
         self.model.load_state_dict(self.best_state)
         loss, preds, labels = self._score(self.valid_loader)
         metrics = self._metrics(preds, labels)
         print(f"-- Valid (weights from epoch {self.best_epoch}) -- Loss: {loss:.4f} "
               f"-- RMSE: {metrics['rmse']:.3f} -- R2: {metrics['r2']:.3f}")
-        pd.DataFrame({"labels": labels, "preds": preds}).to_csv(
-            self.model_dir / PREDICTIONS, index=False
-        )
         return metrics
 
 

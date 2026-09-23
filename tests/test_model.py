@@ -273,18 +273,26 @@ def test_checkpoint_round_trip_restores_weights(model: Model) -> None:
 
 def test_evaluate_scores_the_best_weights_not_the_last(model: Model) -> None:
     """
-    evaluate() predicts with the best epoch's weights even after training has
-    moved on, and writes those predictions alongside the run. It reads the valid
-    split, which is the one held out of selection.
+    evaluate() scores the best epoch's weights even after training has moved
+    on. It reads the valid split, which is the one held out of selection.
     """
     model.best_epoch, model.best_state = 0, _snapshot(model.model)
-    _, expected, _ = model._score(model.valid_loader)
+    _, preds, labels = model._score(model.valid_loader)
+    expected = model._metrics(preds, labels)
     model._train_epoch(0)
     metrics = model.evaluate()
-    assert set(metrics) == {"rmse", "r2"}
-    written = pd.read_csv(model.model_dir / bm.PREDICTIONS)
-    assert np.allclose(written["preds"], expected, atol=1e-6)
-    assert np.allclose(written["labels"], model.valid_df["labels"])
+    assert metrics.keys() == expected.keys()
+    assert np.allclose(list(metrics.values()), list(expected.values()), atol=1e-6)
+
+
+def test_split_frames_recovers_the_trained_splits(model: Model, frame: pd.DataFrame) -> None:
+    """
+    The run directory holds only split positions, and split_frames() turns them
+    back into exactly the frames the run trained, selected and scored on.
+    """
+    for recovered, used in zip(bm.split_frames(frame, model.model_dir),
+                               (model.train_df, model.test_df, model.valid_df)):
+        pd.testing.assert_frame_equal(recovered, used)
 
 
 def test_frozen_epoch_trains_the_head_only(frozen: Model) -> None:
