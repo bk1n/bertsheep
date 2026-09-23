@@ -1,6 +1,6 @@
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
@@ -175,6 +175,11 @@ class Model():
         and want to move less than the head. 1.0 gives uniform AdamW.
     patience : int
         Epochs without test-loss improvement before early stopping.
+    checkpoint : bool
+        Write the weights every epoch. A hyperparameter search wants this off:
+        the weights are ~40 MB an epoch and a search keeps only the winning
+        *parameters*, refitting from them afterwards. evaluate() reads the best
+        epoch's checkpoint, so a run fitted with this off cannot be evaluated.
     """
     def __init__(
         self,
@@ -191,6 +196,7 @@ class Model():
         weight_decay: float = 0.01,
         llrd_decay: float = 0.9,
         patience: int = 5,
+        checkpoint: bool = True,
     ) -> None:
         logging.set_verbosity_error()
         self.target = target
@@ -207,6 +213,7 @@ class Model():
         self.weight_decay = weight_decay
         self.llrd_decay = llrd_decay
         self.patience = patience
+        self.checkpoint = checkpoint
         self.device = DEVICE
         self.model_dir, self.checkpoint_dir = self._create_model_dir()
 
@@ -544,9 +551,9 @@ class Model():
     def _record_epoch(self, epoch: int, train_loss: float, start: float) -> float:
         """
         Score test and valid, then log the epoch: a history row, a progress
-        line and a checkpoint. history.csv is rewritten every epoch so a run
-        that crashes or is interrupted still leaves a history alongside its
-        checkpoints.
+        line and, unless the run has checkpointing off, a checkpoint.
+        history.csv is rewritten every epoch so a run that crashes or is
+        interrupted still leaves a history alongside its checkpoints.
 
         Parameters
         ----------
@@ -583,12 +590,14 @@ class Model():
               f"-- Test: {test_loss:.4f} (R2 {test_metrics['r2']:.3f}) "
               f"-- Valid: {valid_loss:.4f} (R2 {valid_metrics['r2']:.3f}) "
               f"-- {elapsed:.1f}s")
-        self._save_checkpoint(
-            epoch, {"train": train_loss, "test": test_loss, "valid": valid_loss}
-        )
+        if self.checkpoint:
+            self._save_checkpoint(
+                epoch, {"train": train_loss, "test": test_loss, "valid": valid_loss}
+            )
         return test_loss
 
-    def fit(self) -> pd.DataFrame:
+    def fit(self, callback: Callable[[int, float], None] | None = None
+            ) -> pd.DataFrame:
         """
         Trains until test loss stops improving -- test is the selection set
         here and valid is held back for evaluate(). Named fit() rather than
@@ -598,8 +607,18 @@ class Model():
         the latent-space comparison has its pre-fine-tuning reference (which
         differs from the published weights whenever reinit_n > 0) and the R2
         curve has its starting point. Epoch -1 is never a selection candidate.
-        Every epoch is checkpointed; the best one is recorded as best_epoch
-        rather than copied to a separate file.
+        Every epoch is checkpointed unless the run was built with checkpoint
+        off; the best one is recorded as best_epoch rather than copied to a
+        separate file.
+
+        Parameters
+        ----------
+        callback : Callable[[int, float], None] | None
+            Called with the epoch and its test loss after each training epoch,
+            for a hyperparameter search to watch a fit in progress. Raising
+            from it abandons the fit, which is how a search abandons a trial
+            that is already trailing; the history written so far survives on
+            disk. Epoch -1 is not reported, having had no training pass.
 
         Returns
         -------
@@ -621,6 +640,8 @@ class Model():
             start = time.time()
             train_loss = self._train_epoch(epoch)
             test_loss = self._record_epoch(epoch, train_loss, start)
+            if callback is not None:
+                callback(epoch, test_loss)
 
             if test_loss < best - MIN_DELTA:
                 best, stale, self.best_epoch = test_loss, 0, epoch
