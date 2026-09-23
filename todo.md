@@ -25,22 +25,24 @@ not do yet, at the level of "what needs building", not how.
 - [ ] model.py
     - [ ] Restore `Model._seed` — lost in the `b236c05` auto-merge, which kept every reference to it (`MODEL_SEED`, the `seed` argument, the call at `model.py:200`, `generator=` on the train loader) but took the other branch's side of the hunk holding the definition. `Model(...)` raises `AttributeError` before it builds the network, so nothing downstream runs. The method is at `1d42f3a:src/bertsheep/model.py:259`
     - [ ] Replace `valid_predictions.csv` with saved split indices — `splits.parquet` dumps all three frames per run, duplicating the preprocessed data across the 360-run grid, and the predictions CSV only ever covers the best epoch's valid split. Save the positional indices plus a method to recover the split frames from them; predictions for any split at any epoch then come from a checkpoint forward pass, which is seconds on the 4060 and the path `embeddings()` already takes
-    - [ ] Checkpoint every 4 epochs rather than every one — 40 MB per file is ~3.2 GB per run and ~1 TB across the grid. Early stopping does not land on a multiple of 4, so `evaluate()` will ask for a `best_epoch` checkpoint that was never written: keep epoch -1 and the running best as well as the every-fourth ones
+    - [ ] Checkpoint every 4 epochs rather than every one — 40 MB per file is ~3.2 GB per run and ~200 GB across the 60 fine-tuned runs (frozen runs write none). `evaluate()` now restores the best epoch from memory, so thinning no longer has to keep the running best on disk
     - [ ] Record `min_cluster_size` in `config.json` — it is a split setting like `train_size` and `split_seed`, and it is the one that decides which molecules are dropped entirely. With index-only splits the frame cannot be rebuilt without it, nor without `data_path` and `mutation`, which are also unrecorded
     - [ ] Implement early stopping
 - [ ] tuning.py
     - [ ] Implement Optuna hyperparameter optimisation w/ TPESampler
-- [ ] experiment.py
-    - [ ] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
-    - [ ] add tests to ensure methods output consistently everytime
-    - [ ] implement a suite of experiments that answer questions in README.md
-    - [ ] don't implement scaffold splits; Butina splits are working much better than BM scaffolds for this; doesn't need to be comprehensive
+- [x] experiment.py
+    - [x] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
+    - [x] add tests to ensure methods output consistently everytime
+    - [x] implement a suite of experiments that answer questions in README.md
+    - [x] don't implement scaffold splits; Butina splits are working much better than BM scaffolds for this; doesn't need to be comprehensive
+    - [ ] The pre-trained arm reuses the LR tuned for fine-tuning, which is sized for moving the whole encoder; a head alone may want a larger one. A 2-epoch smoke run at 6.9e-5 left it near R2 = 0. Check its curves on the first real seeds before running all 30 -- if it is still climbing at `num_epochs`, the comparison is against an undertrained head
+    - [ ] `MUTATION` defaults to wildtype (11k labels on EGFR); the tuning study has to be run on the same frame, via `Experiment.tune()`
 
 ## Question 1 — does fine-tuning help?
 
-- [ ] Three model arms scored on identical splits: XGBoost fingerprint baseline, pre-trained (frozen encoder + trained head), fine-tuned
+- [x] Three model arms scored on identical splits: XGBoost fingerprint baseline, pre-trained (frozen encoder + trained head), fine-tuned
 - [ ] Optuna (TPESampler) hyperparameter search, once per seed, tuned on train + test, reported on held-out valid
-- [ ] Experiment runner: arm x split method (scaffold, Butina) x distribution (in, out) x 30 seeds, one results row per run — 360 runs. Fingerprint splitting is gone: its greedy deal is deterministic, so its 30 repeats would have resampled the model rather than the chemistry, and its boxplot would not have been measuring what the other two were
+- [x] Experiment runner: arm x distribution (in, out) x 30 seeds on Butina splits, one results row per run — 180 runs, resumable (`Experiment.grid`). Fingerprint splitting is gone: its greedy deal is deterministic, so its 30 repeats would have resampled the model rather than the chemistry, and its boxplot would not have been measuring what the other two were
 - [ ] Results aggregation into one tidy frame, then the four-panel figure (in/out-of-distribution R2 boxplots + fine-tuned R2 curves per epoch)
 
 ## Question 2 — how does fine-tuning change the latent space?
