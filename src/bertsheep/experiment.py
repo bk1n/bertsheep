@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pandas as pd
 from sklearn.metrics import r2_score, root_mean_squared_error
-from xgboost import XGBRegressor
 
+from bertsheep.baseline import fit_baseline
 from bertsheep.chemistry import Chemist
 from bertsheep.data import DUMP_PATH, WILD_TYPE, Data
 from bertsheep.model import Model
 from bertsheep.splitters import DISTRIBUTIONS, Splitters
-from bertsheep.tuning import BEST_PARAMS, TUNING_DIR, Tuner
+from bertsheep.tuning import Tuner, best_params_path, study_name
 
 EXPERIMENT_DIR = Path("out/experiments")
 RESULTS = "{target}-{mutation}.csv"
@@ -31,18 +31,6 @@ TUNING_SEED = 0
 GIF_SEED = 0
 MIN_CLUSTER_SIZE = 10
 MUTATION = WILD_TYPE
-
-# Fixed rather than searched: the baseline is a reference point, and early
-# stopping on test picks the number of trees, which is the setting that
-# matters most. Column subsampling suits 1024 sparse fingerprint bits.
-XGB_PARAMS = {
-    "n_estimators": 2000,
-    "learning_rate": 0.05,
-    "max_depth": 6,
-    "subsample": 0.8,
-    "colsample_bytree": 0.5,
-    "early_stopping_rounds": 50,
-}
 
 
 class Experiment:
@@ -111,52 +99,60 @@ class Experiment:
             min_cluster_size=self.min_cluster_size, distances=self.distances,
         )
 
-    def tune(self, distributions: Iterable[str] = DISTRIBUTIONS) -> None:
+    def tune(self, arms: Iterable[str] = ARMS,
+             distributions: Iterable[str] = DISTRIBUTIONS) -> None:
         """
-        Run the hyperparameter search for each distribution on the first
-        replicate's split. Tuning is split-specific because what an
+        Run each arm's hyperparameter search for each distribution on the
+        first replicate's split. Tuning is split-specific because what an
         out-of-distribution fit needs to regularise against differs from an
-        in-distribution one; tuning once rather than per seed is what the
-        4060's budget allows.
+        in-distribution one, and arm-specific because a frozen encoder, a
+        fine-tuned one and a tree ensemble want different settings; tuning
+        once rather than per seed is what the 4060's budget allows.
 
         Parameters
         ----------
+        arms : Iterable[str]
+            Arms to tune.
         distributions : Iterable[str]
             Distributions to tune for.
         """
+        arms = list(arms)
         for distribution in distributions:
-            Tuner(self.df, self.target,
-                  self._splitter(distribution, TUNING_SEED)).optimise()
+            splitter = self._splitter(distribution, TUNING_SEED)
+            for arm in arms:
+                Tuner(self.df, self.target, splitter, arm,
+                      fingerprints=self.fingerprints).optimise()
 
-    def _params(self, distribution: str) -> dict[str, float | int]:
+    def _params(self, arm: str, distribution: str) -> dict[str, float | int]:
         """
-        The tuned Model arguments for a distribution, as written by Tuner.
+        An arm's tuned parameters for a distribution, as written by Tuner.
         Read rather than defaulted: a matrix run on untuned defaults would
         look exactly like a tuned one in the results.
 
         Parameters
         ----------
+        arm : str
+            One of ARMS.
         distribution : str
             Distribution the parameters were tuned for.
 
         Returns
         -------
         dict[str, float | int]
-            Model keyword arguments.
+            Model keyword arguments, or XGBoost parameters for the baseline.
         """
-        study = f"{self.target}-{METHOD}-{distribution}"
-        return json.loads((TUNING_DIR / BEST_PARAMS.format(study)).read_text())["params"]
+        path = best_params_path(study_name(self.target, arm, METHOD, distribution))
+        return json.loads(path.read_text())["params"]
 
     def _baseline(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
-        XGBoost on ECFP4 bits: what a model with no language pretraining gets
-        from the same split. Early stopping watches test, as the transformer
-        arms' epoch selection does, and valid is scored once at the end.
+        Fit XGBoost with its tuned parameters and score it on valid, once, at
+        the boosting round early stopping on test selected.
 
         Parameters
         ----------
         splitter : Splitters
-            Split to fit and score on.
+            Split to fit and score on; its seed also seeds the subsampling.
 
         Returns
         -------
@@ -165,9 +161,8 @@ class Experiment:
         """
         train, test, valid = splitter.split()
         X, y = self.fingerprints, self.df["labels"].to_numpy()
-        model = XGBRegressor(**XGB_PARAMS, random_state=splitter.seed)
-        model.fit(X[train], y[train], eval_set=[(X[test], y[test])], verbose=False)
-        # With early stopping set, predict() uses the best round, not the last.
+        model = fit_baseline(X, y, train, test, splitter.seed,
+                             self._params("baseline", splitter.distribution))
         preds = model.predict(X[valid])
         return {
             "valid_rmse": root_mean_squared_error(y[valid], preds),
@@ -177,30 +172,28 @@ class Experiment:
         }
 
     def _transformer(self, splitter: Splitters,
-                     freeze: bool) -> dict[str, float | str | None]:
+                     arm: str) -> dict[str, float | str | None]:
         """
         Fit and score ChemBERTa on the split, frozen or fine-tuned, with the
-        hyperparameters tuned for fine-tuning. The frozen arm takes them
-        without `reinit_n`, since re-initialising a layer it cannot train
-        would only feed the head noise. Only fine-tuned runs write checkpoints:
-        a frozen encoder's weights are the published ones at every epoch. Of
-        those, only GIF_SEED's keep every epoch rather than just the ends.
+        hyperparameters tuned for that arm. Only fine-tuned runs write
+        checkpoints: a frozen encoder's weights are the published ones at
+        every epoch. Of those, only GIF_SEED's keep every epoch rather than
+        just the ends.
 
         Parameters
         ----------
         splitter : Splitters
             Split to fit and score on; its seed also seeds the model.
-        freeze : bool
-            Train the head only.
+        arm : str
+            'pretrained' to train the head only, or 'finetuned'.
 
         Returns
         -------
         dict[str, float | str | None]
             Valid RMSE and R2, the selected epoch and the run directory.
         """
-        params = self._params(splitter.distribution)
-        if freeze:
-            params = {k: v for k, v in params.items() if k != "reinit_n"}
+        freeze = arm == "pretrained"
+        params = self._params(arm, splitter.distribution)
         model = Model(self.df, self.target, splitter, seed=splitter.seed,
                       checkpoint=not freeze,
                       trajectory=splitter.seed == GIF_SEED,
@@ -236,7 +229,7 @@ class Experiment:
         if arm == "baseline":
             result = self._baseline(splitter)
         else:
-            result = self._transformer(splitter, freeze=arm == "pretrained")
+            result = self._transformer(splitter, arm)
         train, test, valid = splitter.split()
         row = {
             "target": self.target, "mutation": self.mutation, "method": METHOD,
@@ -348,10 +341,11 @@ def experiment(data_path: str | Path, target: str, arm: str, distribution: str,
 def main() -> None:
     """
     Command-line entry point, `uv run bertsheep <target>`: preprocess the
-    target, tune any distribution whose study is short of its trials, then run
-    every missing cell of the matrix. Both stages resume, so the same command
-    restarts a run that died part way; the narrowing flags are for a smoke run
-    whose rows then count towards the full grid.
+    target, tune any (arm, distribution) whose study is short of its trials,
+    then run every missing cell of the matrix. Both stages resume, so the same
+    command restarts a run that died part way; the narrowing flags are for a
+    smoke run whose rows then count towards the full grid, and they narrow the
+    tuning too, since each arm reads only its own study.
     """
     parser = argparse.ArgumentParser(prog="bertsheep", description=main.__doc__)
     parser.add_argument("target", help="short target name, a key of data.TARGET")
@@ -366,8 +360,6 @@ def main() -> None:
 
     df = Data(DUMP_PATH, args.target, args.mutation)._preprocess()
     exp = Experiment(df, args.target, args.mutation)
-    # The baseline reads no tuned parameters, so a baseline-only run skips it.
-    if set(args.arms) - {"baseline"}:
-        exp.tune(args.distributions)
+    exp.tune(args.arms, args.distributions)
     exp.grid(args.arms, args.distributions, range(args.seeds))
     print(f"-- Results in {exp.results_path}")

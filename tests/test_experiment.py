@@ -9,28 +9,18 @@ import bertsheep.experiment as be
 from bertsheep.experiment import ARMS, Experiment
 from bertsheep.splitters import DISTRIBUTIONS, Splitters
 
-# Ten ring systems, each carried by four alkyl homologues, so Butina has
-# clusters to group and both distributions have something to hold out.
-CORES = ("c1ccccc1", "c1ccc2ccccc2c1", "c1ccncc1", "C1CCNCC1", "C1CCNC1",
-         "c1ccco1", "c1ccsc1", "c1cc2ccccc2[nH]1", "c1ccc2ccccc2n1", "C1CCOCC1")
-ALKYLS = ("C", "CC", "CCC", "CCCC")
-SMILES = [alkyl + core for core in CORES for alkyl in ALKYLS]
-
 
 @pytest.fixture
-def experiment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Experiment:
+def untuned(monkeypatch: pytest.MonkeyPatch, experiment: Experiment) -> Experiment:
     """
-    An Experiment over the homologue series, writing its results into tmp_path.
-    min_cluster_size 1 keeps every molecule, since forty is already few.
+    The shared Experiment with every arm reading empty tuned parameters, so the
+    baseline fits at XGB_PARAMS and XGBoost's defaults without a study.
     """
-    monkeypatch.setattr(be, "EXPERIMENT_DIR", tmp_path)
-    labels = np.random.default_rng(0).normal(6, 1, len(SMILES))
-    frame = pd.DataFrame({"smiles": SMILES, "labels": labels})
-    frame.attrs = {"data_path": "test.tsv", "mutation": None}
-    return Experiment(frame, "TEST", mutation=None, min_cluster_size=1)
+    monkeypatch.setattr(experiment, "_params", lambda arm, distribution: {})
+    return experiment
 
 
-def _fake_transformer(splitter: Splitters, freeze: bool) -> dict:
+def _fake_transformer(splitter: Splitters, arm: str) -> dict:
     """
     Stand-in for Experiment._transformer that returns at once.
 
@@ -38,7 +28,7 @@ def _fake_transformer(splitter: Splitters, freeze: bool) -> dict:
     ----------
     splitter : Splitters
         Ignored.
-    freeze : bool
+    arm : str
         Ignored.
 
     Returns
@@ -66,7 +56,7 @@ def test_arms_are_scored_on_the_same_split(
 
     def record(splitter: Splitters, *args, **kwargs) -> dict:
         seen.append(splitter.split())
-        return _fake_transformer(splitter, False)
+        return _fake_transformer(splitter, "finetuned")
 
     monkeypatch.setattr(experiment, "_baseline", record)
     monkeypatch.setattr(experiment, "_transformer", record)
@@ -76,24 +66,24 @@ def test_arms_are_scored_on_the_same_split(
         assert all(np.array_equal(a, b) for a, b in zip(seen[0], split))
 
 
-def test_baseline_is_repeatable(experiment: Experiment) -> None:
+def test_baseline_is_repeatable(untuned: Experiment) -> None:
     """The same split and seed give the same baseline score."""
-    splitter = experiment._splitter("in", 0)
-    assert experiment._baseline(splitter) == experiment._baseline(splitter)
+    splitter = untuned._splitter("in", 0)
+    assert untuned._baseline(splitter) == untuned._baseline(splitter)
 
 
 def test_grid_resumes_rather_than_repeating(
-    monkeypatch: pytest.MonkeyPatch, experiment: Experiment
+    monkeypatch: pytest.MonkeyPatch, untuned: Experiment
 ) -> None:
     """
     A second call runs only the combinations the results file does not have,
     so extending the seeds adds rows and repeating a call adds none.
     """
-    monkeypatch.setattr(experiment, "_transformer", _fake_transformer)
+    monkeypatch.setattr(untuned, "_transformer", _fake_transformer)
     per_seed = len(ARMS) * len(DISTRIBUTIONS)
-    assert len(experiment.grid(seeds=range(2))) == 2 * per_seed
-    assert len(experiment.grid(seeds=range(2))) == 2 * per_seed
-    results = experiment.grid(seeds=range(3))
+    assert len(untuned.grid(seeds=range(2))) == 2 * per_seed
+    assert len(untuned.grid(seeds=range(2))) == 2 * per_seed
+    results = untuned.grid(seeds=range(3))
     assert len(results) == 3 * per_seed
     assert not results.duplicated(be.KEY).any()
 
@@ -104,9 +94,8 @@ def test_transformer_arms_differ_only_in_freezing(
     monkeypatch: pytest.MonkeyPatch, experiment: Experiment, arm: str, seed: int
 ) -> None:
     """
-    Both transformer arms get the tuned parameters and the replicate seed; the
-    frozen one also drops reinit_n and skips checkpoints. Only GIF_SEED keeps
-    every epoch.
+    Each transformer arm gets its own tuned parameters and the replicate seed;
+    the frozen one also skips checkpoints. Only GIF_SEED keeps every epoch.
     """
     built = {}
 
@@ -117,15 +106,15 @@ def test_transformer_arms_differ_only_in_freezing(
                                evaluate=lambda: {"rmse": 1.0, "r2": 0.0},
                                best_epoch=0, model_dir=Path("run"))
 
+    tuned = {"pretrained": {"lr": 1e-3}, "finetuned": {"lr": 1e-4}}
     monkeypatch.setattr(be, "Model", fake_model)
     monkeypatch.setattr(experiment, "_params",
-                        lambda distribution: {"lr": 1e-4, "reinit_n": 1})
+                        lambda arm, distribution: tuned[arm])
     experiment.run(arm, "in", seed)
 
     frozen = arm == "pretrained"
     assert built["seed"] == seed
-    assert built["lr"] == 1e-4
+    assert built["lr"] == tuned[arm]["lr"]
     assert built["freeze"] is frozen
     assert built["checkpoint"] is not frozen
     assert built["trajectory"] is (seed == be.GIF_SEED)
-    assert ("reinit_n" in built) is not frozen

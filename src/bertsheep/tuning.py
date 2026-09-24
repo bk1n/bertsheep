@@ -1,11 +1,14 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import optuna
 import pandas as pd
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
+from sklearn.metrics import mean_squared_error
 
+from bertsheep.baseline import fit_baseline
 from bertsheep.model import Model
 from bertsheep.splitters import Splitters
 
@@ -13,8 +16,11 @@ TUNING_DIR = Path("out/tuning")
 STUDY_DB = "studies.db"
 BEST_PARAMS = "{}.json"
 
-# Six dimensions; 50 trials left TPE too little to model the space with.
-N_TRIALS = 75
+# Trials each arm's study runs to. The transformer arms search four dimensions,
+# where 50 gives TPE enough to model the space after its random start; six
+# would want nearer 75. XGBoost searches six and a trial
+# is seconds rather than GPU minutes, so it can afford more.
+N_TRIALS = {"baseline": 100, "pretrained": 50, "finetuned": 50}
 TUNER_SEED = 0
 
 # Trials TPE samples at random before it has enough observations to model the
@@ -25,33 +31,102 @@ STARTUP_TRIALS = 10
 # shares with every other trial rather than on its own hyperparameters.
 WARMUP_EPOCHS = 10
 
-# Search space. `batch_size` is fixed rather than searched: it sets the number
-# of optimiser steps in an epoch, so varying it would make the per-epoch losses
-# the pruner compares mean different amounts of training between trials, and it
-# is the parameter the 4060 timings that sized N_TRIALS were measured at.
-# `num_epochs` is fixed for a sharper reason -- it sets total_steps for the LR
-# schedule, so searching it would reshape the decay curve rather than just
-# lengthen the budget.
-LR_RANGE = (1e-5, 1e-3)
-# Searched rather than inherited: the checkpoint's 0.144 was tuned for
-# multi-task pretraining over millions of molecules, and weight decay is a poor
-# substitute for it -- dropout does most of the regularising in a transformer.
-DROPOUT_RANGE = (0.05, 0.30)
-LLRD_DECAY_RANGE = (0.7, 1.0)
-WEIGHT_DECAY_RANGE = (0.0, 0.3)
-WARMUP_RATIO_RANGE = (0.0, 0.2)
-# ChemBERTa-10M-MTR has three encoder layers, so this is nearly binary: the
-# few-sample reinit trick discards the quarter of the encoder nearest the head
-# (Zhang et al. 2021, 6 layers of BERT-large's 24), and a third is already
-# past that. Reinitialising all three would be pretraining thrown away rather
-# than a fine-tuning setting, and a "fine-tuned" arm that won that way would
-# not answer the question the arm exists to answer.
-REINIT_N_RANGE = (0, 1)
+# Search spaces, as {name: (low, high, log)}. Integer bounds draw integers.
+# Anything not listed runs at Model's default, or for the baseline at
+# XGB_PARAMS and then XGBoost's own.
+#
+# Fine-tuning. Plain AdamW over the whole network: llrd_decay and reinit_n are
+# fine-tuning *methods*, which Question 2.1 compares, so they stay at Model's
+# defaults (1.0 and 0, i.e. neither) rather than letting the arm that answers
+# Question 1 win on them. `batch_size` is fixed rather than searched: it sets
+# the number of optimiser steps in an epoch, so varying it would make the
+# per-epoch losses the pruner compares mean different amounts of training
+# between trials, and it is the parameter the 4060 timings that sized N_TRIALS
+# were measured at. `num_epochs` is fixed for a sharper reason -- it sets
+# total_steps for the LR schedule, so searching it would reshape the decay
+# curve rather than just lengthen the budget. LR is drawn on a log scale
+# because it matters by order of magnitude rather than by increment. Dropout
+# is searched rather than inherited: the checkpoint's 0.144 was tuned for
+# multi-task pretraining over millions of molecules, and weight decay is a
+# poor substitute for it -- dropout does most of the regularising in a
+# transformer.
+FINETUNED_SPACE = {
+    "lr": (1e-5, 1e-3, True),
+    "weight_decay": (0.0, 0.3, False),
+    "warmup_ratio": (0.0, 0.2, False),
+    "dropout": (0.05, 0.30, False),
+}
+# Frozen encoder, trained head. The same four settings are the only ones that
+# reach a head-only fit -- dropout through the head alone, since Model keeps a
+# frozen encoder in eval mode -- but the LR range moves up a decade: there are
+# no pretrained weights for a large step to wreck, and a randomly initialised
+# head on fixed features wants the larger steps a linear probe takes.
+PRETRAINED_SPACE = FINETUNED_SPACE | {"lr": (1e-4, 1e-2, True)}
+# XGBoost on 1024 sparse fingerprint bits. Column subsampling reaches low
+# because most bits are uninformative for any one split; min_child_weight and
+# reg_lambda are the regularisers that matter on ~8k training rows, and both
+# act by order of magnitude. The number of trees is left to early stopping.
+BASELINE_SPACE = {
+    "max_depth": (3, 10, False),
+    "learning_rate": (0.01, 0.3, True),
+    "subsample": (0.5, 1.0, False),
+    "colsample_bytree": (0.2, 1.0, False),
+    "min_child_weight": (1.0, 20.0, True),
+    "reg_lambda": (1e-3, 10.0, True),
+}
+SEARCH_SPACES = {
+    "baseline": BASELINE_SPACE,
+    "pretrained": PRETRAINED_SPACE,
+    "finetuned": FINETUNED_SPACE,
+}
+
+
+def study_name(target: str, arm: str, method: str, distribution: str) -> str:
+    """
+    Name a study, and the best-parameters file it writes, for everything its
+    parameters are specific to: the arm they configure and the split they
+    were tuned against, since one split's winners are not another's.
+
+    Parameters
+    ----------
+    target : str
+        Short target name.
+    arm : str
+        Key of SEARCH_SPACES.
+    method : str
+        Split method, see Splitters.
+    distribution : str
+        'in' or 'out'.
+
+    Returns
+    -------
+    str
+        Study name, e.g. 'EGFR-finetuned-butina-out'.
+    """
+    return f"{target}-{arm}-{method}-{distribution}"
+
+
+def best_params_path(study: str) -> Path:
+    """
+    Where a study's winning parameters are written by Tuner and read back
+    from by the experiment runner, so the two cannot disagree on it.
+
+    Parameters
+    ----------
+    study : str
+        Study name, see study_name.
+
+    Returns
+    -------
+    Path
+        JSON file under TUNING_DIR.
+    """
+    return TUNING_DIR / BEST_PARAMS.format(study)
 
 
 class Tuner:
     """
-    Search fine-tuning hyperparameters for one target and one split with
+    Search one arm's hyperparameters for one target and one split with
     Optuna's TPE sampler, scoring trials on test and never reading valid.
 
     The study's product is a set of *parameters*, not a trained model: the
@@ -59,7 +134,9 @@ class Tuner:
     fits are what report on valid. Keeping the search out of that path means
     re-running the matrix does not re-run the search, and it keeps the held-out
     split genuinely held out -- test is already doing double duty here, picking
-    the epoch within a trial and the trial within the study.
+    the epoch (or boosting round) within a trial and the trial within the
+    study. Each arm gets its own study, so each is compared at its own best
+    rather than at settings tuned for another.
 
     Parameters
     ----------
@@ -72,10 +149,17 @@ class Tuner:
         the caller: holding the split fixed is what makes the trials'
         scores comparable, and it saves rebuilding the fingerprints and
         distance matrix per trial.
-    n_trials : int
+    arm : str
+        Which model to tune, a key of SEARCH_SPACES: 'baseline' (XGBoost),
+        'pretrained' (frozen encoder) or 'finetuned'.
+    fingerprints : np.ndarray | None
+        (n, bits) fingerprints over `df`, in frame order. They are the
+        baseline's features, so only 'baseline' reads them.
+    n_trials : int | None
         Total trials the study should reach, counting any it has already run.
+        None takes the arm's N_TRIALS.
     seed : int
-        Seed for the sampler and for every trial's Model, so a repeated search
+        Seed for the sampler and for every trial's model, so a repeated search
         over the same frame proposes the same configurations.
     """
 
@@ -84,22 +168,26 @@ class Tuner:
         df: pd.DataFrame,
         target: str,
         splitter: Splitters,
-        n_trials: int = N_TRIALS,
+        arm: str,
+        fingerprints: np.ndarray | None = None,
+        n_trials: int | None = None,
         seed: int = TUNER_SEED,
     ) -> None:
         self.df = df
         self.target = target
         self.splitter = splitter
-        self.n_trials = n_trials
+        self.arm = arm
+        self.fingerprints = fingerprints
+        self.n_trials = N_TRIALS[arm] if n_trials is None else n_trials
         self.seed = seed
-        # Named for what the parameters will be reused on: hyperparameters
-        # tuned against one split method are not the ones the other wants.
-        self.study_name = f"{target}-{splitter.method}-{splitter.distribution}"
+        self.study_name = study_name(target, arm, splitter.method,
+                                     splitter.distribution)
         TUNING_DIR.mkdir(parents=True, exist_ok=True)
 
     def _search_space(self, trial: optuna.Trial) -> dict[str, float | int]:
         """
-        Draw one trial's hyperparameters, as keyword arguments for Model.
+        Draw one trial's hyperparameters from the arm's space in
+        SEARCH_SPACES, as integers where both bounds are integers.
 
         Parameters
         ----------
@@ -109,25 +197,43 @@ class Tuner:
         Returns
         -------
         dict[str, float | int]
-            Model constructor arguments. LR is drawn on a log scale because it
-            matters by order of magnitude rather than by increment.
+            Keyword arguments for Model, or XGBoost parameters for the baseline.
         """
         return {
-            "lr": trial.suggest_float("lr", *LR_RANGE, log=True),
-            "llrd_decay": trial.suggest_float("llrd_decay", *LLRD_DECAY_RANGE),
-            "weight_decay": trial.suggest_float(
-                "weight_decay", *WEIGHT_DECAY_RANGE
-            ),
-            "warmup_ratio": trial.suggest_float(
-                "warmup_ratio", *WARMUP_RATIO_RANGE
-            ),
-            "dropout": trial.suggest_float("dropout", *DROPOUT_RANGE),
-            "reinit_n": trial.suggest_int("reinit_n", *REINIT_N_RANGE),
+            name: (trial.suggest_int if isinstance(low, int) else trial.suggest_float)(
+                name, low, high, log=log
+            )
+            for name, (low, high, log) in SEARCH_SPACES[self.arm].items()
         }
 
-    def _objective(self, trial: optuna.Trial) -> float:
+    def _baseline_loss(self, params: dict[str, float | int]) -> float:
         """
-        Fit one hyperparameter set and score it on test.
+        Fit XGBoost with one hyperparameter set and score it on test. XGBoost
+        reports no per-epoch losses to Optuna, so these trials are never
+        pruned; at seconds apiece there is little to save.
+
+        Parameters
+        ----------
+        params : dict[str, float | int]
+            XGBoost parameters drawn for the trial.
+
+        Returns
+        -------
+        float
+            Test MSE at the boosting round early stopping selected, in the
+            same units as the transformer arms' test loss.
+        """
+        train, test, _ = self.splitter.split()
+        labels = self.df["labels"].to_numpy()
+        model = fit_baseline(self.fingerprints, labels, train, test, self.seed, params)
+        return mean_squared_error(labels[test], model.predict(self.fingerprints[test]))
+
+    def _transformer_loss(self, trial: optuna.Trial,
+                          params: dict[str, float | int]) -> float:
+        """
+        Fit ChemBERTa, frozen or fine-tuned as the arm says, with one
+        hyperparameter set and score it on test, stopping part way if the
+        trial trails the ones before it.
 
         Checkpointing is off: a search of this size would write hundreds of
         gigabytes of weights it would then discard, since only the parameters
@@ -137,7 +243,9 @@ class Tuner:
         Parameters
         ----------
         trial : optuna.Trial
-            Trial supplying the hyperparameters.
+            Trial the epoch losses are reported to.
+        params : dict[str, float | int]
+            Model arguments drawn for the trial.
 
         Returns
         -------
@@ -163,14 +271,33 @@ class Tuner:
 
         model = Model(
             self.df, self.target, self.splitter, seed=self.seed,
-            checkpoint=False, **self._search_space(trial),
+            checkpoint=False, freeze=self.arm == "pretrained", **params,
         )
         return model.fit(callback=report)["test_loss"].min()
+
+    def _objective(self, trial: optuna.Trial) -> float:
+        """
+        Score one trial's hyperparameters with the arm's model.
+
+        Parameters
+        ----------
+        trial : optuna.Trial
+            Trial supplying the hyperparameters.
+
+        Returns
+        -------
+        float
+            Test MSE of the fit.
+        """
+        params = self._search_space(trial)
+        if self.arm == "baseline":
+            return self._baseline_loss(params)
+        return self._transformer_loss(trial, params)
 
     def _save(self, study: optuna.Study) -> None:
         """
         Write the winning parameters where the experiment runner can read them,
-        keyed by the configuration they were tuned for.
+        keyed by the arm and split they were tuned for.
 
         Parameters
         ----------
@@ -183,7 +310,7 @@ class Tuner:
             "best_value": study.best_value,
             "params": study.best_params,
         }
-        path = TUNING_DIR / BEST_PARAMS.format(self.study_name)
+        path = best_params_path(self.study_name)
         path.write_text(json.dumps(record, indent=2))
         print(f"-- Best test loss {study.best_value:.4f} -- written to {path}")
 
@@ -199,7 +326,7 @@ class Tuner:
         Returns
         -------
         dict[str, float | int]
-            The best trial's Model arguments, also written to out/tuning/.
+            The best trial's parameters, also written to out/tuning/.
         """
         study = optuna.create_study(
             study_name=self.study_name,

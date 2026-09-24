@@ -193,7 +193,8 @@ class Model():
         resampled, or the reverse, which is what separates variance due to the
         chemistry held out from variance due to the fit.
     reinit_n : int
-        Number of top encoder layers to re-initialise before fine-tuning.
+        Number of top encoder layers to re-initialise before fine-tuning. 0,
+        the default, keeps every pretrained layer.
     model_link : str
         Hugging Face ID of the pretrained ChemBERTa.
     lr : float
@@ -216,7 +217,9 @@ class Model():
     llrd_decay : float
         Layerwise LR decay: each layer below the head trains at llrd_decay x
         the rate of the one above it. Lower layers hold general SMILES grammar
-        and want to move less than the head. 1.0 gives uniform AdamW.
+        and want to move less than the head. 1.0, the default, gives uniform
+        AdamW: LLRD is a fine-tuning method Question 2.1 compares, so plain
+        fine-tuning is what a Model does unless asked otherwise.
     dropout : float | None
         Overrides the checkpoint's `hidden_dropout_prob`, which also governs
         the classification head while its own `classifier_dropout` is unset.
@@ -257,7 +260,7 @@ class Model():
         num_epochs: int = 80,
         warmup_ratio: float = 0.1,
         weight_decay: float = 0.01,
-        llrd_decay: float = 0.9,
+        llrd_decay: float = 1.0,
         dropout: float | None = None,
         patience: int = 5,
         checkpoint: bool = True,

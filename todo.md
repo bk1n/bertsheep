@@ -31,9 +31,9 @@ not do yet, at the level of "what needs building", not how.
     - [x] Implement early stopping
 - [x] tuning.py
     - [x] Implement Optuna hyperparameter optimisation w/ TPESampler
-    - [ ] Don't include fine-tuning hyperparameters in the search yet; e.g. LLRD, reinit_n
-    - [ ] Implement complementary tuning for pretrained model
-    - [ ] Implement basic hyperparameter optim for XGBoost model
+    - [x] Don't include fine-tuning hyperparameters in the search yet; e.g. LLRD, reinit_n, these will be left for Q2.1 (if we have time)
+    - [x] Implement complementary tuning for pretrained model
+    - [x] Implement basic hyperparameter optim for XGBoost model
 - [x] experiment.py
     - [x] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
     - [x] add tests to ensure methods output consistently everytime
@@ -46,6 +46,10 @@ not do yet, at the level of "what needs building", not how.
 ## Question 1 — does fine-tuning help?
 
 - [ ] Results aggregation into one tidy frame, then the four-panel figure (in/out-of-distribution R2 boxplots + fine-tuned R2 curves per epoch)
+
+## Question 2.1 — fine-tuning methods
+
+- [ ] Compare LLRD and top-layer reinit. Both are out of the Question 1 search and default off in `Model` (`llrd_decay=1.0`, `reinit_n=0`), so the fine-tuned arm is plain AdamW. The ranges the search used before they came out: `llrd_decay` 0.7–1.0, `reinit_n` 0–1. `reinit_n` is close to binary because ChemBERTa-10M-MTR has three encoder layers. The few-sample reinit trick discards the quarter of the encoder nearest the head (Zhang et al. 2021, 6 of BERT-large's 24 layers), and a third is already past that. Reinitialising all three would throw pretraining away rather than being a fine-tuning setting
 
 ## Housekeeping
 

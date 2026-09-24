@@ -140,7 +140,10 @@ def test_parameter_groups_cover_each_parameter_once(model: Model) -> None:
     """
     Every parameter is in exactly one group, only biases and LayerNorm weights
     skip weight decay, and each depth trains at llrd_decay x the one above.
+    The default of 1.0 would pass the depth check whatever the groups' order,
+    so a real decay is set first; the groups read it when they are built.
     """
+    model.llrd_decay = 0.9
     groups = model._parameter_groups()
     grouped = [id(p) for g in groups for p in g["params"]]
     assert sorted(grouped) == sorted(id(p) for p in model.model.parameters())
