@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from bertsheep.chemistry import Chemist
+from bertsheep.eda import BUTINA_CUTOFFS
 
 # Three toluene homologues reduce to one benzene scaffold, so the largest group
 # is known by construction; naphthalene and piperidine are one each.
@@ -108,3 +111,52 @@ def test_fingerprints_are_one_bit_vector_per_molecule(chemist: Chemist) -> None:
     fps = chemist.fingerprints(SMILES)
     assert fps.shape == (len(SMILES), 1024)
     assert set(np.unique(fps).tolist()) <= {0, 1}
+
+
+def test_cached_tanimoto_hit_returns_the_saved_matrix(
+        chemist: Chemist, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second call with the same fingerprints reads the file, not a rebuild."""
+    fps = chemist.fingerprints(SMILES)
+    first = chemist.cached_tanimoto(fps, tmp_path, "TEST-wildtype")
+    assert np.array_equal(first, chemist.pairwise_tanimoto(fps).astype(np.float32))
+
+    def rebuild(fps: np.ndarray) -> np.ndarray:
+        """Stand-in for pairwise_tanimoto that fails if the cache is missed."""
+        raise AssertionError("cache missed")
+
+    monkeypatch.setattr(chemist, "pairwise_tanimoto", rebuild)
+    second = chemist.cached_tanimoto(fps, tmp_path, "TEST-wildtype")
+    assert np.array_equal(first, second)
+    assert second.dtype == np.float32
+    assert len(list(tmp_path.glob("*.npy"))) == 1
+
+
+@pytest.mark.parametrize("changed, fp_bits", [
+    (SMILES[::-1], 1024),  # same molecules, different row order
+    (SMILES[:-1], 1024),  # preprocessing dropped a molecule
+    (SMILES, 2048),  # different fingerprint settings
+])
+def test_cached_tanimoto_misses_on_a_changed_frame(
+        tmp_path: Path, changed: list[str], fp_bits: int) -> None:
+    """
+    A frame that differs in rows, order or fingerprint settings gets its own
+    matrix under the same name, never the one saved for the original.
+    """
+    original = Chemist()
+    original.cached_tanimoto(original.fingerprints(SMILES), tmp_path, "TEST-wildtype")
+    chemist = Chemist(fp_bits=fp_bits)
+    fps = chemist.fingerprints(changed)
+    cached = chemist.cached_tanimoto(fps, tmp_path, "TEST-wildtype")
+    assert np.array_equal(cached, chemist.pairwise_tanimoto(fps).astype(np.float32))
+    assert len(list(tmp_path.glob("*.npy"))) == 2
+
+
+@pytest.mark.parametrize("cutoff", BUTINA_CUTOFFS)
+def test_cached_float32_matrix_gives_the_same_clusters(
+        chemist: Chemist, tmp_path: Path, cutoff: float) -> None:
+    """The float32 cache clusters exactly as the float64 matrix at every cutoff."""
+    fps = chemist.fingerprints(SMILES)
+    assert np.array_equal(
+        chemist.butina_clusters(chemist.cached_tanimoto(fps, tmp_path, "TEST"), cutoff),
+        chemist.butina_clusters(chemist.pairwise_tanimoto(fps), cutoff),
+    )
