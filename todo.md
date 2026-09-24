@@ -42,6 +42,8 @@ not do yet, at the level of "what needs building", not how.
     - [x] Command-line runner: `uv run bertsheep <target>` preprocesses, tunes (resuming the SQLite study) and runs the missing grid cells; `--arms`/`--distributions`/`--seeds` narrow it for smoke runs
     - [x] `MUTATION` defaults to wildtype (11k labels on EGFR); the tuning study has to be run on the same frame, via `Experiment.tune()`
     - [x] Add caching for distance matrix on target + mutation status; saves remaking Tanimoto distance matrix every run
+- [ ] results.py: results visualiser, driven off the results CSV's `run_dir` column (not a glob of `out/models/`, which also holds tuning-trial and legacy runs). Figures are headed for `results.md`/`README.md`, so they need a tracked home outside the gitignored `out/`
+    - [ ] Loss curves: 1x2 grid (in / out distribution), coloured by arm, every seed's per-epoch loss as points with a LOESS trend per arm
 
 ## Question 1 — does fine-tuning help?
 
