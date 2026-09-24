@@ -10,7 +10,7 @@ from sklearn.metrics import r2_score, root_mean_squared_error
 
 from bertsheep.baseline import fit_baseline
 from bertsheep.chemistry import Chemist
-from bertsheep.data import DUMP_PATH, WILD_TYPE, Data
+from bertsheep.data import CACHE_DIR, DUMP_PATH, WILD_TYPE, Data
 from bertsheep.model import Model
 from bertsheep.splitters import DISTRIBUTIONS, Splitters
 from bertsheep.tuning import Tuner, best_params_path, study_name
@@ -43,7 +43,9 @@ class Experiment:
     same split for every (distribution, seed), so their differences can be
     read in pairs, seed by seed. The fingerprints and Tanimoto distance matrix
     are computed once here and shared by every splitter, since they depend on
-    the molecules and not on the seed.
+    the molecules and not on the seed. The matrix is also cached under
+    out/.cache/, so a restarted or repeated run on the same frame loads it
+    rather than spending a minute rebuilding it.
 
     Rows are appended to out/experiments/<target>-<mutation>.csv as each run
     finishes, and grid() skips combinations already there, so a matrix that
@@ -69,12 +71,15 @@ class Experiment:
         self.target = target
         self.mutation = mutation
         self.min_cluster_size = min_cluster_size
+        variant = mutation or "pooled"
         chemist = Chemist()
         self.fingerprints = chemist.fingerprints(df["smiles"])
-        self.distances = chemist.pairwise_tanimoto(self.fingerprints)
+        self.distances = chemist.cached_tanimoto(
+            self.fingerprints, CACHE_DIR, f"{target}-{variant}"
+        )
         EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
         self.results_path = EXPERIMENT_DIR / RESULTS.format(
-            target=target, mutation=mutation or "pooled"
+            target=target, mutation=variant
         )
 
     def _splitter(self, distribution: str, seed: int) -> Splitters:

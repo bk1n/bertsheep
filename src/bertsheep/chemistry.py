@@ -1,4 +1,6 @@
+import hashlib
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,6 +13,8 @@ from sklearn.metrics import pairwise_distances
 FP_BITS = 1024
 FP_RADIUS = 2  # radius 2 over 1024 bits is ECFP4
 BUTINA_CUTOFF = 0.5  # Tanimoto distance
+TANIMOTO_CACHE = "{name}-tanimoto-{digest}.npy"
+DIGEST_LENGTH = 16  # hex characters of the fingerprint hash kept in the file name
 
 
 class Chemist:
@@ -72,6 +76,54 @@ class Chemist:
             (n, n) symmetric distance matrix, 0 on the diagonal.
         """
         return pairwise_distances(fps.astype(bool), metric="jaccard")
+
+    def cached_tanimoto(self, fps: np.ndarray, cache_dir: Path, name: str) -> np.ndarray:
+        """
+        pairwise_tanimoto, read back from disk when these exact fingerprints
+        have been seen before: the matrix takes over a minute at ~11k ligands,
+        the saved one well under a second.
+
+        The file is keyed on a hash of the fingerprints -- their shape and
+        bytes -- because the matrix is a function of them and nothing else.
+        Any change that could alter it changes the key: a row dropped or added
+        by preprocessing, the frame reordered, FP_BITS or FP_RADIUS changed,
+        even an RDKit upgrade that perceives a molecule differently. A matrix
+        therefore cannot be paired with a frame it does not describe. `name`
+        only makes the files readable; a superseded matrix is orphaned rather
+        than overwritten, so delete cache_dir to reclaim the space.
+
+        Stored as float32, which halves ~1 GB at ~11k ligands. It cannot move
+        a Butina neighbourhood: every distance is p/q with q <= fp_bits, so one
+        not equal to a one-decimal cutoff sits at least ~1e-4 from it, three
+        orders past float32 rounding, and one equal to it rounds to the same
+        float32. A fresh matrix is cast too, so the first run and every later
+        one cluster the same array.
+
+        Parameters
+        ----------
+        fps : np.ndarray
+            (n, fp_bits) bit vectors, from fingerprints().
+        cache_dir : Path
+            Directory the matrix is saved to and looked up in.
+        name : str
+            Readable prefix for the file, e.g. '<target>-<mutation>'.
+
+        Returns
+        -------
+        np.ndarray
+            (n, n) float32 symmetric distance matrix, 0 on the diagonal.
+        """
+        key = hashlib.sha256(repr(fps.shape).encode() + fps.tobytes())
+        path = cache_dir / TANIMOTO_CACHE.format(
+            name=name, digest=key.hexdigest()[:DIGEST_LENGTH]
+        )
+        if path.exists():
+            print(f"-- Reading cached {path}")
+            return np.load(path)
+        distances = self.pairwise_tanimoto(fps).astype(np.float32)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        np.save(path, distances)
+        return distances
 
     def scaffold_clusters(self, smiles: Iterable[str]) -> tuple[np.ndarray, list[str | None]]:
         """

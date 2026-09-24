@@ -10,6 +10,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.patches import Patch
 
 from bertsheep.chemistry import BUTINA_CUTOFF, Chemist
+from bertsheep.data import CACHE_DIR
 from bertsheep.splitters import DISTRIBUTIONS, SPLIT_SEED, Splitters
 
 FIGURE_DIR = Path("out/eda")
@@ -133,10 +134,17 @@ class Eda():
         """
         Tanimoto distance matrix over the unique ligands. Cached apart from the
         clusters because it doesn't depend on the cutoff and is most of their
-        cost, so a sweep pays for it once. ~1.3 GB resident at 12.8k ligands.
+        cost, so a sweep pays for it once. ~0.65 GB resident at 12.8k ligands.
+        Also cached on disk under the same name Experiment uses: a
+        single-variant frame has one row per ligand already, so the two see
+        the same fingerprints and share one file.
         """
         chemist = Chemist()
-        return chemist.pairwise_tanimoto(chemist.fingerprints(self.ligands["smiles"]))
+        variant = self.df.attrs["mutation"] or "pooled"
+        return chemist.cached_tanimoto(
+            chemist.fingerprints(self.ligands["smiles"]), CACHE_DIR,
+            f"{self.target}-{variant}",
+        )
 
     def ligand_butina(self, cutoff: float = BUTINA_CUTOFF) -> pd.Series:
         """
