@@ -13,16 +13,11 @@ from bertsheep.splitters import DISTRIBUTIONS, Splitters
 @pytest.fixture
 def untuned(monkeypatch: pytest.MonkeyPatch, experiment: Experiment) -> Experiment:
     """
-    An Experiment over the homologue series, writing its results and its
-    distance matrix into tmp_path. min_cluster_size 1 keeps every molecule,
-    since forty is already few.
+    The shared Experiment with every arm reading empty tuned parameters, so the
+    baseline fits at XGB_PARAMS and XGBoost's defaults without a study.
     """
-    monkeypatch.setattr(be, "EXPERIMENT_DIR", tmp_path)
-    monkeypatch.setattr(be, "CACHE_DIR", tmp_path)
-    labels = np.random.default_rng(0).normal(6, 1, len(SMILES))
-    frame = pd.DataFrame({"smiles": SMILES, "labels": labels})
-    frame.attrs = {"data_path": "test.tsv", "mutation": None}
-    return Experiment(frame, "TEST", mutation=None, min_cluster_size=1)
+    monkeypatch.setattr(experiment, "_params", lambda arm, distribution: {})
+    return experiment
 
 
 def _fake_transformer(splitter: Splitters, arm: str) -> dict:

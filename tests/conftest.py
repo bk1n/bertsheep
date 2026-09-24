@@ -26,12 +26,13 @@ SMILES = [alkyl + core for core in CORES for alkyl in ALKYLS]
 @pytest.fixture
 def experiment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Experiment:
     """
-    An Experiment over the homologue series, writing its results and tuned
-    parameters into tmp_path. min_cluster_size 1 keeps every molecule, since
-    forty is already few.
+    An Experiment over the homologue series, writing its results, tuned
+    parameters and distance matrix into tmp_path. min_cluster_size 1 keeps
+    every molecule, since forty is already few.
     """
     monkeypatch.setattr(be, "EXPERIMENT_DIR", tmp_path / "experiments")
     monkeypatch.setattr(bt, "TUNING_DIR", tmp_path / "tuning")
+    monkeypatch.setattr(be, "CACHE_DIR", tmp_path / "cache")
     labels = np.random.default_rng(0).normal(6, 1, len(SMILES))
     frame = pd.DataFrame({"smiles": SMILES, "labels": labels})
     frame.attrs = {"data_path": "test.tsv", "mutation": None}
