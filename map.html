@@ -1,0 +1,1242 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>bertsheep Run Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --ground: #F3F5F3;
+  --surface: #FFFFFF;
+  --surface-2: #E9EDEA;
+  --ink: #15201B;
+  --ink-2: #3F4B46;
+  --muted: #66726D;
+  --rule: #D3DAD6;
+  --accent: #2E47A5;
+  --accent-soft: #E2E7F6;
+  --high: #B42A22;
+  --high-bg: #FBE6E3;
+  --med: #8F5600;
+  --med-bg: #FAEFD9;
+  --low: #3C5B72;
+  --low-bg: #E4ECF2;
+  --ok: #1C7439;
+  --ok-bg: #DFF1E4;
+  --in: #2a78d6;
+  --out: #eb6834;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0F1412;
+    --surface: #161C1A;
+    --surface-2: #1E2623;
+    --ink: #E2E8E5;
+    --ink-2: #B9C3BF;
+    --muted: #8C9893;
+    --rule: #2A3431;
+    --accent: #9BAEF5;
+    --accent-soft: #1F2945;
+    --high: #F2877E;
+    --high-bg: #3A1C1A;
+    --med: #E7B45C;
+    --med-bg: #35280F;
+    --low: #A3C1D8;
+    --low-bg: #1B2933;
+    --ok: #7ED39B;
+    --ok-bg: #15301F;
+    --in: #3987e5;
+    --out: #d95926;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0F1412;
+  --surface: #161C1A;
+  --surface-2: #1E2623;
+  --ink: #E2E8E5;
+  --ink-2: #B9C3BF;
+  --muted: #8C9893;
+  --rule: #2A3431;
+  --accent: #9BAEF5;
+  --accent-soft: #1F2945;
+  --high: #F2877E;
+  --high-bg: #3A1C1A;
+  --med: #E7B45C;
+  --med-bg: #35280F;
+  --low: #A3C1D8;
+  --low-bg: #1B2933;
+  --ok: #7ED39B;
+  --ok-bg: #15301F;
+  --in: #3987e5;
+  --out: #d95926;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+.page {
+  max-width: 1260px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 40px 96px;
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 56px;
+}
+.toc {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 32px);
+  align-self: start;
+  font-size: 13px;
+}
+.toc p { font: 500 11px/1.4 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.toc a { color: var(--ink-2); text-decoration: none; }
+.toc a:hover { color: var(--accent); text-decoration: underline; }
+main { min-width: 0; max-width: 960px; }
+
+@media (max-width: 1000px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: 20px; padding-block: 28px 72px; }
+  .toc { position: static; }
+  .toc ul { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+}
+
+/* type */
+.eyebrow { font: 500 12px/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+h1 { font-family: var(--display); font-size: clamp(36px, 5.4vw, 52px); line-height: 1.02; letter-spacing: -.02em; font-weight: 700; margin: 0; text-wrap: balance; }
+.lede { font-size: 17px; line-height: 1.55; color: var(--ink-2); max-width: 66ch; margin: 16px 0 0; }
+h2 { font-family: var(--display); font-size: 28px; line-height: 1.15; font-weight: 600; letter-spacing: -.01em; margin: 0 0 12px; text-wrap: balance; }
+h3 { font-size: 17px; font-weight: 600; margin: 34px 0 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; text-wrap: balance; }
+h3 .where, .where { font: 400 12px/1.4 var(--mono); color: var(--muted); }
+h4 { font-size: 15px; font-weight: 600; margin: 22px 0 6px; }
+p, li { max-width: 70ch; }
+p { margin: 0 0 12px; }
+ul.plain { padding-left: 1.1em; margin: 0 0 12px; }
+ul.plain li { margin-bottom: 6px; }
+code { font-family: var(--mono); font-size: .87em; background: var(--surface-2); padding: .06em .35em; border-radius: 4px; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+
+section { border-top: 1px solid var(--rule); margin-top: 48px; padding-top: 40px; }
+header.top { padding-bottom: 8px; }
+
+pre.sig {
+  font: 12.5px/1.6 var(--mono);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 10px 0 14px;
+  overflow-x: auto;
+  color: var(--ink);
+}
+pre.sig .k { color: var(--accent); }
+pre.sig .c { color: var(--muted); }
+
+/* tables */
+.table-wrap { overflow-x: auto; margin: 12px 0 20px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+th {
+  text-align: left; font: 500 11px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--rule); background: var(--surface-2); white-space: nowrap;
+}
+td { padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+td.r, th.r { text-align: right; }
+.args td:first-child { white-space: nowrap; }
+
+/* facts */
+.facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin: 28px 0 24px;
+}
+.facts div { background: var(--surface); padding: 12px 14px; }
+.facts dt { font: 500 11px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.facts dd { margin: 4px 0 0; font-size: 14.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.facts dd span { font-weight: 400; color: var(--ink-2); }
+
+/* chips */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--sans); letter-spacing: .05em;
+  text-transform: uppercase; padding: 5px 8px; border-radius: 999px; white-space: nowrap; vertical-align: 1px;
+}
+.chip.high { color: var(--high); background: var(--high-bg); }
+.chip.med { color: var(--med); background: var(--med-bg); }
+.chip.low { color: var(--low); background: var(--low-bg); }
+.chip.ok { color: var(--ok); background: var(--ok-bg); }
+.chip.high::before { content: "▲"; font-size: 8px; }
+.chip.med::before { content: "◆"; font-size: 9px; }
+.chip.low::before { content: "●"; font-size: 8px; }
+.chip.ok::before { content: "✓"; font-size: 11px; }
+.chip.none { color: var(--muted); background: var(--surface-2); }
+.chip.none::before { content: "○"; font-size: 10px; }
+
+/* fix-first list */
+.fixfirst { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
+.fixfirst li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: baseline; max-width: none; }
+
+/* issues */
+.issue { padding: 20px 0; border-top: 1px solid var(--rule); }
+.issue.lift { background: color-mix(in srgb, var(--high-bg) 60%, transparent); border-top: 0; border-radius: 8px; padding: 20px 20px; margin-bottom: 10px; }
+.issue header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.issue h4 { margin: 0; font-size: 16px; }
+.issue .where { flex-basis: 100%; }
+.issue dl { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 6px 16px; margin: 10px 0 0; }
+.issue dt { font: 500 11px/1.9 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.issue dd { margin: 0; max-width: 70ch; }
+@media (max-width: 620px) { .issue dl { grid-template-columns: 1fr; gap: 2px; } .issue dd { margin-bottom: 8px; } }
+.sev-head { display: flex; align-items: baseline; gap: 12px; margin: 30px 0 4px; }
+.sev-head h3 { margin: 0; }
+
+/* figures */
+figure { margin: 22px 0 8px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 14px; }
+.fig-scroll svg { display: block; width: 100%; height: auto; }
+.flow svg { min-width: 900px; }
+figcaption { font-size: 13px; line-height: 1.55; color: var(--ink-2); margin-top: 10px; max-width: 78ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 12.5px; color: var(--ink-2); margin: 10px 0 0; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 22px; height: 12px; border: 1.25px solid var(--ink-2); border-radius: 3px; background: var(--surface); display: inline-block; }
+.sw.dash { border-style: dashed; }
+.sw.disk { background: var(--surface-2); border-color: var(--rule); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.in { background: var(--in); }
+.dot.out { background: var(--out); }
+
+/* diagram */
+.dg-node { fill: var(--surface); stroke: var(--ink-2); stroke-width: 1.25; }
+.dg-node.untested { stroke-dasharray: 6 4; }
+.dg-disk { fill: var(--surface-2); stroke: var(--rule); stroke-width: 1; }
+.dg-pill { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.dg-title { font: 500 14px var(--mono); fill: var(--ink); }
+.dg-title-s { font: 600 13px var(--sans); fill: var(--ink); }
+.dg-body { font: 12px var(--sans); fill: var(--ink-2); }
+.dg-code { font: 11.5px var(--mono); fill: var(--ink-2); }
+.dg-code-s { font: 11px var(--mono); fill: var(--ink-2); }
+.dg-iss { font: 500 11px var(--mono); fill: var(--muted); }
+.dg-cov0 { font: 600 11px var(--sans); fill: var(--high); }
+.dg-covok { font: 600 11px var(--sans); fill: var(--ok); }
+.dg-covstub { font: 600 11px var(--sans); fill: var(--med); }
+.dg-edge { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+.dg-lbl { font: 11px var(--sans); fill: var(--muted); }
+.dg-head { font: 600 10.5px var(--sans); letter-spacing: .08em; fill: var(--muted); }
+.dg-pilltext { font: 500 12.5px var(--sans); fill: var(--accent); }
+.arrowhead { fill: var(--muted); }
+
+/* run order */
+.timeline { display: flex; gap: 2px; margin: 16px 0 6px; font-size: 12px; }
+.timeline div { padding: 8px 10px; border-radius: 4px; min-width: 0; }
+.timeline b { display: block; font-weight: 600; font-size: 12.5px; }
+.timeline span { color: var(--ink-2); }
+.tl-in { background: color-mix(in srgb, var(--in) 16%, var(--surface)); }
+.tl-out { background: color-mix(in srgb, var(--out) 16%, var(--surface)); }
+.tl-tune { background: var(--surface-2); }
+@media (max-width: 620px) { .timeline { flex-direction: column; } .timeline div { flex: none !important; } }
+.matrix { display: grid; grid-template-columns: 112px repeat(30, minmax(0, 1fr)); gap: 3px; align-items: center; margin-top: 18px; font-size: 11.5px; }
+.matrix .rl { color: var(--ink-2); white-space: nowrap; display: flex; align-items: center; gap: 6px; padding-right: 6px; }
+.matrix .ch { color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; font-size: 10.5px; }
+.matrix .cell { aspect-ratio: 1; border: 1px solid var(--rule); border-radius: 2px; background: var(--surface); max-width: 100%; }
+.matrix .cell.s0 { border-color: var(--accent); }
+.matrix .cell.traj { background: repeating-linear-gradient(45deg, var(--accent-soft) 0 2px, var(--surface) 2px 4px); border-color: var(--accent); }
+.matrix .cell.done { background: var(--ok); border-color: var(--ok); }
+.matrix .gap { grid-column: 1 / -1; height: 6px; }
+@media (max-width: 620px) { .matrix { grid-template-columns: 76px repeat(30, minmax(0, 1fr)); gap: 2px; } .matrix .rl { font-size: 10.5px; } }
+.sw.cell0 { width: 12px; height: 12px; border-color: var(--accent); }
+.sw.cellt { width: 12px; height: 12px; border-color: var(--accent); background: repeating-linear-gradient(45deg, var(--accent-soft) 0 2px, var(--surface) 2px 4px); }
+.sw.celld { width: 12px; height: 12px; border-color: var(--ok); background: var(--ok); }
+.sw.cellp { width: 12px; height: 12px; border-color: var(--rule); }
+
+/* split chart */
+.chart-box { position: relative; }
+.chart-box svg { min-width: 620px; }
+.ch-grid { stroke: var(--rule); stroke-width: 1; }
+.ch-tick { font: 11px var(--sans); fill: var(--muted); font-variant-numeric: tabular-nums; }
+.ch-row { font: 600 12.5px var(--sans); fill: var(--ink); }
+.ch-sub { font: 11px var(--sans); fill: var(--muted); }
+.ch-lab { font: 11px var(--sans); fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ch-in { fill: var(--in); stroke: var(--surface); stroke-width: 1.5; }
+.ch-out { fill: var(--out); stroke: var(--surface); stroke-width: 1.5; transition: r .12s; }
+.ch-out.hl { stroke: var(--ink); stroke-width: 2; }
+.ch-range { stroke: var(--out); stroke-width: 2; opacity: .35; stroke-linecap: round; }
+.ch-hit { fill: transparent; cursor: default; }
+.ch-in, .ch-out { pointer-events: none; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; font-size: 12.5px; line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0,0,0,.14); max-width: 260px; font-variant-numeric: tabular-nums;
+}
+.tip b { font-weight: 600; }
+
+/* coverage */
+.cov-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) 52px 88px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--rule); font-size: 13.5px; }
+.cov-row:last-child { border-bottom: 0; }
+.cov-row.head { font: 500 11px/1.3 var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.cov-row .name { font-family: var(--mono); font-size: 12.5px; }
+.cov-row .pct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.cov-row .st { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bar { height: 10px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); border-radius: 3px 0 0 3px; }
+.cov-note { grid-column: 2 / -1; font-size: 12px; color: var(--muted); margin-top: -4px; }
+.cov-box { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 6px 16px; margin: 14px 0 20px; }
+@media (max-width: 620px) { .cov-row { grid-template-columns: 96px minmax(0, 1fr) 44px; } .cov-row .st { display: none; } .cov-note { grid-column: 1 / -1; } }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <p>Contents</p>
+    <ul>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#flow">Flow map</a></li>
+      <li><a href="#order">Run order</a></li>
+      <li><a href="#trace">Trace, method by method</a></li>
+      <li><a href="#splits">Splits in practice</a></li>
+      <li><a href="#issues">Issues</a></li>
+      <li><a href="#sound">Checked and sound</a></li>
+      <li><a href="#readme">README vs code</a></li>
+      <li><a href="#coverage">Test coverage</a></li>
+      <li><a href="#drift">Doc drift</a></li>
+      <li><a href="#method">How this was made</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <header class="top" id="summary">
+      <p class="eyebrow">bertsheep · commit 1b17cf7 · traced 23 Sep 2026</p>
+      <h1>What <code style="font-size:.8em;background:none;padding:0">uv run bertsheep EGFR</code> actually does</h1>
+      <p class="lede">A trace of the command-line run from <code>experiment.main()</code> through data, tuning and the arm × distribution × seed grid, with the arguments each key method receives. It covers where the flow can go wrong, how it compares with the README, and which parts the tests in <code>tests/</code> exercise.</p>
+
+      <dl class="facts">
+        <div><dt>Frame</dt><dd>11,056 labels <span>(EGFR wild type)</span><br>8,802 reach the splits</dd></div>
+        <div><dt>Work queued</dt><dd>150 tuning fits<br><span>then</span> 180 grid cells</dd></div>
+        <div><dt>Progress on disk</dt><dd>1 of 180 cells<br><span>out/tuning not created yet</span></dd></div>
+        <div><dt>Tests</dt><dd>66 pass · 50% coverage<br><span>main, Data, Tuner: 0%</span></dd></div>
+        <div><dt>Issues found</dt><dd>2 high · 6 medium<br><span>11 low · 3 notes</span></dd></div>
+      </dl>
+
+      <h2 style="font-size:22px">Verdict</h2>
+      <p>The runner does what its docstrings promise. It preprocesses once and builds one distance matrix, runs a resumable tuning stage, then works through a resumable grid in which every arm of a cell is scored on the same rows. Nothing on the happy path crashes. The problems are about what the numbers will mean. Seed 0 is tuned on and then reported as a replicate. Only the fine-tuned arm gets a hyperparameter search. And neither the tuning store nor the results file is keyed on the configuration that produced it. Each of these is a few lines to fix, and all of them are cheaper before the first real run than after.</p>
+
+      <h4>Fix before the first real run</h4>
+      <ul class="fixfirst">
+        <li><span class="chip high">H1</span><span>Tune on a seed outside 0–29, or drop seed 0 from the analysis. The fine-tuned seed-0 cell is otherwise a re-run of the winning Optuna trial.</span></li>
+        <li><span class="chip high">H2</span><span>Decide how the pretrained arm and the XGBoost baseline get tuned, or state the asymmetry. Right now only the fine-tuned arm is searched.</span></li>
+        <li><span class="chip med">M1</span><span>Key the tuning study and the results resume on mutation and <code>min_cluster_size</code> (M1, M2). Both currently resume silently across configurations.</span></li>
+        <li><span class="chip med">M4</span><span>Fix <code>reinit_n</code> before tuning if Question 2 is to compare pre-trained and fine-tuned layers.</span></li>
+      </ul>
+    </header>
+
+    <section id="flow">
+      <h2>Flow map</h2>
+      <p>The spine on the left is the call sequence. The column on the right is what each stage reads from and writes to disk. A dashed border marks code that no test executes.</p>
+      <figure class="flow">
+        <div class="fig-scroll">
+          <svg viewBox="0 0 1056 1044" role="img" aria-label="Call flow of uv run bertsheep EGFR: main, Data preprocessing, Experiment construction, optional tuning with Optuna, then a grid loop over distribution and seed that runs baseline, pretrained and finetuned arms and appends one results row per cell. main, Data and tuning are untested.">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+              </marker>
+            </defs>
+
+            <!-- N1 main -->
+            <rect class="dg-node untested" x="56" y="16" width="600" height="76" rx="8"/>
+            <text class="dg-title" x="70" y="42">main()</text>
+            <text class="dg-cov0" x="642" y="42" text-anchor="end">0% tested</text>
+            <text class="dg-body" x="70" y="62">argv: EGFR · --mutation wildtype · 3 arms · in + out · --seeds 30 (all defaults)</text>
+            <text class="dg-iss" x="70" y="82">Issues M3 · L5 · L8 · L10</text>
+
+            <line class="dg-edge" x1="356" y1="92" x2="356" y2="118" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="110">target, mutation</text>
+
+            <!-- N2 Data -->
+            <rect class="dg-node untested" x="56" y="120" width="600" height="94" rx="8"/>
+            <text class="dg-title" x="70" y="146">Data(DUMP_PATH, "EGFR", "wildtype")._preprocess()</text>
+            <text class="dg-cov0" x="642" y="146" text-anchor="end">0% tested</text>
+            <text class="dg-body" x="70" y="166">read cache → IC50 &gt; 0, SMILES &lt; 128 chars → wild type only: 16,789 rows</text>
+            <text class="dg-body" x="70" y="184">→ canonicalise → drop 8 acyclic → median per SMILES → −ln IC50 (nM): 11,056 labels</text>
+            <text class="dg-iss" x="70" y="204">Issues N1 · N2</text>
+
+            <line class="dg-edge" x1="356" y1="214" x2="356" y2="240" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="232">df: 11,056 × (smiles, mutations, labels)</text>
+
+            <!-- N3 Experiment -->
+            <rect class="dg-node" x="56" y="242" width="600" height="94" rx="8"/>
+            <text class="dg-title" x="70" y="268">Experiment(df, "EGFR", "wildtype")</text>
+            <text class="dg-covok" x="642" y="268" text-anchor="end">tested</text>
+            <text class="dg-body" x="70" y="288">fingerprints: ECFP4, 11,056 × 1,024 bits · 1.6 s</text>
+            <text class="dg-body" x="70" y="306">distances: Tanimoto, 11,056 × 11,056 float64 · 0.98 GB · 76 s · shared by every split</text>
+            <text class="dg-iss" x="70" y="326">Issues L11</text>
+
+            <line class="dg-edge" x1="356" y1="336" x2="356" y2="362" marker-end="url(#ah)"/>
+
+            <!-- decision -->
+            <rect class="dg-pill" x="206" y="364" width="300" height="40" rx="20"/>
+            <text class="dg-pilltext" x="356" y="389" text-anchor="middle">Any arm other than baseline?</text>
+
+            <line class="dg-edge" x1="356" y1="404" x2="356" y2="430" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="422">yes: tune first</text>
+            <path class="dg-edge" d="M206,384 H38 V620 H54" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="122" y="377" text-anchor="middle">no: baseline only</text>
+
+            <!-- N5 tune -->
+            <rect class="dg-node untested" x="56" y="432" width="600" height="128" rx="8"/>
+            <text class="dg-title" x="70" y="458">tune(("in", "out"))</text>
+            <text class="dg-cov0" x="642" y="458" text-anchor="end">0% tested</text>
+            <text class="dg-code" x="70" y="478">Tuner(df, "EGFR", _splitter(d, seed=0)).optimise()   for d in in, out</text>
+            <text class="dg-body" x="70" y="496">study EGFR-butina-{d} · 75 trials · TPE (seed 0) · median pruning after epoch 10</text>
+            <text class="dg-body" x="70" y="514">trial: Model(checkpoint=False, 6 sampled params).fit(report) → min test_loss</text>
+            <text class="dg-body" x="70" y="532">every trial also leaves a run dir in out/models (150 in total)</text>
+            <text class="dg-iss" x="70" y="550">Issues H1 · M1 · M3 · M6 · L1</text>
+
+            <line class="dg-edge" x1="656" y1="470" x2="754" y2="470" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="705" y="462" text-anchor="middle">writes</text>
+
+            <line class="dg-edge" x1="356" y1="560" x2="356" y2="582" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="576">tuned params on disk</text>
+
+            <!-- N6 grid -->
+            <rect class="dg-node" x="56" y="584" width="600" height="110" rx="8"/>
+            <text class="dg-title" x="70" y="610">grid(ARMS, ("in", "out"), range(30))</text>
+            <text class="dg-covok" x="642" y="610" text-anchor="end">tested</text>
+            <text class="dg-body" x="70" y="630">_done(): read the results CSV, skip finished (arm, distribution, seed)</text>
+            <text class="dg-body" x="70" y="648">for distribution in (in, out), for seed in 0 … 29 → 60 splits × 3 arms = 180 cells</text>
+            <text class="dg-body" x="70" y="666">_splitter(d, seed): Butina clusters (cutoff 0.5), those &lt; 10 dropped → 8,802 rows</text>
+            <text class="dg-iss" x="70" y="684">Issues M2 · M5 · L5 · L6</text>
+
+            <!-- fork -->
+            <line class="dg-edge" x1="356" y1="694" x2="356" y2="706"/>
+            <line class="dg-edge" x1="152.5" y1="706" x2="559.5" y2="706"/>
+            <line class="dg-edge" x1="152.5" y1="706" x2="152.5" y2="730" marker-end="url(#ah)"/>
+            <line class="dg-edge" x1="356" y1="706" x2="356" y2="730" marker-end="url(#ah)"/>
+            <line class="dg-edge" x1="559.5" y1="706" x2="559.5" y2="730" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="164" y="723">each missing arm</text>
+            <text class="dg-lbl" x="568" y="723">same splitter</text>
+
+            <!-- N7 baseline -->
+            <rect class="dg-node" x="56" y="732" width="193" height="140" rx="8"/>
+            <text class="dg-title-s" x="68" y="756">baseline</text>
+            <text class="dg-covok" x="239" y="756" text-anchor="end">tested</text>
+            <text class="dg-code-s" x="68" y="776">_baseline(splitter)</text>
+            <text class="dg-body" x="68" y="794">XGBoost on ECFP4 bits</text>
+            <text class="dg-body" x="68" y="812">2,000 trees, lr 0.05, depth 6</text>
+            <text class="dg-body" x="68" y="830">early stop 50 rounds on test</text>
+            <text class="dg-body" x="68" y="848">predict valid once</text>
+            <text class="dg-iss" x="68" y="864">H2 · L9</text>
+
+            <!-- N7 pretrained -->
+            <rect class="dg-node" x="260" y="732" width="193" height="140" rx="8"/>
+            <text class="dg-title-s" x="272" y="756">pretrained</text>
+            <text class="dg-covstub" x="443" y="756" text-anchor="end">stubbed</text>
+            <text class="dg-code-s" x="272" y="776">_transformer(freeze=True)</text>
+            <text class="dg-body" x="272" y="794">tuned params minus reinit_n</text>
+            <text class="dg-body" x="272" y="812">encoder frozen, eval mode</text>
+            <text class="dg-body" x="272" y="830">checkpoint=False</text>
+            <text class="dg-body" x="272" y="848">fit() → evaluate() on valid</text>
+            <text class="dg-iss" x="272" y="864">H2 · L2</text>
+
+            <!-- N7 finetuned -->
+            <rect class="dg-node" x="463" y="732" width="193" height="140" rx="8"/>
+            <text class="dg-title-s" x="475" y="756">finetuned</text>
+            <text class="dg-covstub" x="646" y="756" text-anchor="end">stubbed</text>
+            <text class="dg-code-s" x="475" y="776">_transformer(freeze=False)</text>
+            <text class="dg-body" x="475" y="794">all tuned params</text>
+            <text class="dg-body" x="475" y="812">checkpoint=True: init, best</text>
+            <text class="dg-body" x="475" y="830">seed 0 keeps every epoch</text>
+            <text class="dg-body" x="475" y="848">fit() → evaluate() on valid</text>
+            <text class="dg-iss" x="475" y="864">H1 M4 L2 L3 L4 L7</text>
+
+            <line class="dg-edge" x1="152.5" y1="872" x2="152.5" y2="898" marker-end="url(#ah)"/>
+            <line class="dg-edge" x1="356" y1="872" x2="356" y2="898" marker-end="url(#ah)"/>
+            <line class="dg-edge" x1="559.5" y1="872" x2="559.5" y2="898" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="889">metrics dict</text>
+
+            <!-- N8 _run -->
+            <rect class="dg-node" x="56" y="900" width="600" height="76" rx="8"/>
+            <text class="dg-title" x="70" y="926">_run(arm, splitter)</text>
+            <text class="dg-covok" x="642" y="926" text-anchor="end">tested</text>
+            <text class="dg-body" x="70" y="946">adds split sizes and wall time → appends one row to the results CSV</text>
+            <text class="dg-iss" x="70" y="966">Issues M2</text>
+
+            <!-- loop back -->
+            <path class="dg-edge" d="M56,946 H20 V660 H54" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="13" y="800" text-anchor="middle" transform="rotate(-90 13 800)">next missing cell</text>
+
+            <line class="dg-edge" x1="356" y1="976" x2="356" y2="998" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="366" y="991">no cells left</text>
+            <rect class="dg-pill" x="236" y="1000" width="240" height="32" rx="16"/>
+            <text class="dg-code" x="356" y="1021" text-anchor="middle" style="fill:var(--accent)">print(results_path)</text>
+
+            <!-- disk D1 -->
+            <rect class="dg-disk" x="756" y="120" width="280" height="94" rx="6"/>
+            <text class="dg-head" x="768" y="140">RAW DUMP + CACHE</text>
+            <text class="dg-code" x="768" y="160">data/BindingDB_All_202609_tsv/</text>
+            <text class="dg-code" x="768" y="176">  BindingDB_All.tsv · 8.4 GB</text>
+            <text class="dg-code" x="768" y="198">out/.cache/BindingDB_All_EGFR.parquet</text>
+            <line class="dg-edge" x1="756" y1="178" x2="658" y2="178" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="705" y="170" text-anchor="middle">reads</text>
+
+            <!-- disk D2 -->
+            <rect class="dg-disk" x="756" y="432" width="280" height="128" rx="6"/>
+            <text class="dg-head" x="768" y="452">TUNING STORE · NOT CREATED YET</text>
+            <text class="dg-code" x="768" y="472">out/tuning/studies.db</text>
+            <text class="dg-body" x="768" y="488">SQLite, one study per distribution</text>
+            <text class="dg-code" x="768" y="508">out/tuning/EGFR-butina-in.json</text>
+            <text class="dg-code" x="768" y="524">out/tuning/EGFR-butina-out.json</text>
+            <text class="dg-body" x="768" y="544">{study, trials, best_value, params}</text>
+            <path class="dg-edge" d="M756,540 H690 V780 H658" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="696" y="652">reads</text>
+            <text class="dg-code-s" x="696" y="666" style="fill:var(--muted)">_params</text>
+
+            <!-- disk D3 -->
+            <rect class="dg-disk" x="756" y="732" width="280" height="140" rx="6"/>
+            <text class="dg-head" x="768" y="752">ONE RUN DIRECTORY PER MODEL</text>
+            <text class="dg-code" x="768" y="772">out/models/EGFR-butina-{in,out}-</text>
+            <text class="dg-code" x="768" y="788">  {frozen,finetuned}-&lt;timestamp&gt;/</text>
+            <text class="dg-code" x="768" y="808">config.json  splits.parquet</text>
+            <text class="dg-code" x="768" y="824">history.csv  (every epoch)</text>
+            <text class="dg-code" x="768" y="844">checkpoints/init.pt  best.pt</text>
+            <text class="dg-code" x="768" y="860">  + epochNNN.pt when seed = 0</text>
+            <line class="dg-edge" x1="656" y1="820" x2="754" y2="820" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="705" y="812" text-anchor="middle">writes</text>
+
+            <!-- disk D4 -->
+            <rect class="dg-disk" x="756" y="900" width="280" height="76" rx="6"/>
+            <text class="dg-head" x="768" y="920">RESULTS</text>
+            <text class="dg-code" x="768" y="940">out/experiments/EGFR-wildtype.csv</text>
+            <text class="dg-body" x="768" y="960">1 of 180 rows so far (baseline, in, 0)</text>
+            <line class="dg-edge" x1="656" y1="938" x2="754" y2="938" marker-end="url(#ah)"/>
+            <text class="dg-lbl" x="705" y="930" text-anchor="middle">appends</text>
+          </svg>
+        </div>
+        <div class="legend">
+          <span><i class="sw"></i>code executed by tests</span>
+          <span><i class="sw dash"></i>no test executes it</span>
+          <span><i class="sw disk"></i>file on disk</span>
+          <span>“stubbed”: tests run it with a fake <code>Model</code></span>
+          <span>H / M / L / N: <a href="#issues">issue IDs</a></span>
+        </div>
+        <figcaption>Tuning always finishes before the first grid cell. Inside the grid, one <code>Splitters</code> is built per (distribution, seed) and handed to every missing arm, so the three arms of a cell see identical rows. The pretrained arm also reads the tuned parameters, and it writes a run directory without checkpoints.</figcaption>
+      </figure>
+    </section>
+
+    <section id="order">
+      <h2>Run order</h2>
+      <p>Counted in model fits and grid cells, not time. Tuning runs to completion for both distributions before any grid cell starts. The grid then runs all 30 in-distribution seeds before the first out-of-distribution one, because <code>product(distributions, seeds)</code> puts distribution in the outer loop.</p>
+      <div class="timeline" aria-label="Run order: tune in, 75 trials; tune out, 75 trials; grid in, cells 1 to 90; grid out, cells 91 to 180">
+        <div class="tl-tune" style="flex:75"><b>tune · in</b><span>75 trials</span></div>
+        <div class="tl-tune" style="flex:75"><b>tune · out</b><span>75 trials</span></div>
+        <div class="tl-in" style="flex:90"><b>grid · in</b><span>cells 1–90</span></div>
+        <div class="tl-out" style="flex:90"><b>grid · out</b><span>cells 91–180</span></div>
+      </div>
+      <div class="matrix" id="matrix" role="img" aria-label="Grid of 180 cells: 6 rows (in and out, each with baseline, pretrained, finetuned) by 30 seeds. One cell is done: baseline, in, seed 0. Seed 0 is the tuning split; its two finetuned cells keep every epoch for the GIF."></div>
+      <div class="legend">
+        <span><i class="sw celld"></i>done (1)</span>
+        <span><i class="sw cellp"></i>missing</span>
+        <span><i class="sw cell0"></i>seed 0: the split Optuna tunes on</span>
+        <span><i class="sw cellt"></i>seed 0 finetuned: keeps every epoch (GIF)</span>
+      </div>
+      <p class="muted" style="font-size:13px;margin-top:10px">Within a block, cells run down each seed column (baseline → pretrained → finetuned), then move one seed to the right. Hover a cell for its position in the queue.</p>
+    </section>
+
+    <section id="trace">
+      <h2>Trace, method by method</h2>
+      <p>These are the methods in the order the command reaches them, with the arguments each one receives in this run. “Source” says where the value comes from: a CLI default, a module constant, a tuned parameter, or the <code>Model</code> default.</p>
+
+      <h3><code>main()</code> <span class="where">experiment.py:348–373</span></h3>
+      <p>This is the <code>[project.scripts]</code> entry point. It parses five arguments, then runs four steps: preprocess, build the <code>Experiment</code>, tune (only if a transformer arm is selected), and run the grid.</p>
+      <pre class="sig"><span class="k">df</span>  = Data(DUMP_PATH, args.target, args.mutation)._preprocess()
+<span class="k">exp</span> = Experiment(df, args.target, args.mutation)
+<span class="k">if</span> set(args.arms) - {"baseline"}:   <span class="c"># baseline reads no tuned params</span>
+    exp.tune(args.distributions)
+exp.grid(args.arms, args.distributions, range(args.seeds))</pre>
+      <div class="table-wrap"><table class="args">
+        <thead><tr><th>Argument</th><th>This run</th><th>Source</th><th>Feeds</th></tr></thead>
+        <tbody>
+          <tr><td><code>target</code></td><td><code>"EGFR"</code></td><td>positional</td><td><code>Data</code> target lookup (UniProt P00533, EGFR_HUMAN); study names; results filename</td></tr>
+          <tr><td><code>--mutation</code></td><td><code>"wildtype"</code></td><td><code>MUTATION = WILD_TYPE</code></td><td><code>Data._select_mutation</code>; results filename <code>EGFR-wildtype.csv</code> and the <code>mutation</code> column. <em>Not</em> the tuning study name (M1)</td></tr>
+          <tr><td><code>--arms</code></td><td>baseline pretrained finetuned</td><td><code>ARMS</code></td><td>whether <code>tune()</code> runs; which arms <code>grid()</code> fills</td></tr>
+          <tr><td><code>--distributions</code></td><td>in out</td><td><code>DISTRIBUTIONS</code></td><td>which studies <code>tune()</code> runs; the outer grid loop</td></tr>
+          <tr><td><code>--seeds</code></td><td><code>30</code></td><td><code>N_REPEATS</code></td><td><code>range(30)</code>: always seeds 0…N−1</td></tr>
+        </tbody>
+      </table></div>
+      <p>The CLI does not expose <code>min_cluster_size</code> (10), <code>N_TRIALS</code> (75), <code>METHOD</code> (“butina”), <code>XGB_PARAMS</code> or the dump path (<code>data.DUMP_PATH</code>, relative to the working directory).</p>
+
+      <h3><code>Data(data_path, target, mutation)._preprocess()</code> <span class="where">data.py:67, 304–325</span></h3>
+      <p>This takes the raw BindingDB dump down to a <code>(smiles, mutations, labels)</code> frame. Each stage is a method that takes and returns a dataframe. On this machine the parquet cache exists, so the whole call takes 6.6 s.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stage</th><th>What it does</th><th class="r">Rows after</th></tr></thead>
+        <tbody>
+          <tr><td><code>_load_cached</code></td><td>Reads <code>out/.cache/BindingDB_All_EGFR.parquet</code>. On a miss, <code>_load</code> streams the TSV in 200k-row chunks (7 columns, all <code>str</code>) and keeps single-chain rows where UniProt = P00533 and entry = EGFR_HUMAN, then writes the cache</td><td class="r muted">all variants</td></tr>
+          <tr><td><code>_filter</code></td><td><code>labels = to_numeric(ic50)</code>, keeps &gt; 0 (drops blanks and censored “&gt;10000”), then keeps raw SMILES shorter than 128 characters</td><td class="r muted">—</td></tr>
+          <tr><td><code>_extract_mutations</code></td><td>Parses the bracketed construct on Target Name into e.g. <code>"T790M,del746-750"</code>. Wild type is <code>""</code></td><td class="r muted">—</td></tr>
+          <tr><td><code>_select_mutation</code></td><td>Keeps <code>mutations == ""</code> for <code>"wildtype"</code>. Raises if nothing matches; warns if <code>None</code></td><td class="r">16,789</td></tr>
+          <tr><td><code>_canonicalise</code></td><td>RDKit canonical isomeric SMILES; drops unparseable</td><td class="r muted">—</td></tr>
+          <tr><td><code>_drop_acyclic</code></td><td>Drops molecules whose Murcko scaffold is empty</td><td class="r">−8</td></tr>
+          <tr><td><code>_deduplicate</code></td><td>Median IC50 per <code>(smiles, mutations)</code>, which also sorts by SMILES</td><td class="r">11,056</td></tr>
+          <tr><td><code>_transform_labels</code></td><td><code>labels = −ln(IC50 nM)</code>, natural log. Mean −4.94, SD 3.16, range −17.13 to 5.81</td><td class="r">11,056</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>df.attrs = {"data_path", "mutation"}</code> rides along so each <code>Model</code> can write it to <code>config.json</code>.</p>
+
+      <h3><code>Experiment(df, target, mutation=MUTATION, min_cluster_size=10)</code> <span class="where">experiment.py:77–90</span></h3>
+      <p>This computes the two things every split and the baseline share. Neither depends on the seed, so each is computed once per process.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Attribute</th><th>Value</th><th>Cost (measured)</th></tr></thead>
+        <tbody>
+          <tr><td><code>fingerprints</code></td><td><code>Chemist().fingerprints(df.smiles)</code>: ECFP4 (radius 2), 11,056 × 1,024 <code>uint8</code></td><td>1.6 s</td></tr>
+          <tr><td><code>distances</code></td><td><code>pairwise_tanimoto</code>: sklearn Jaccard on bool bits, 11,056 × 11,056 <code>float64</code></td><td>76 s, 0.98 GB, held for the whole run</td></tr>
+          <tr><td><code>results_path</code></td><td><code>out/experiments/EGFR-wildtype.csv</code> (<code>"pooled"</code> if mutation is <code>None</code>)</td><td>—</td></tr>
+        </tbody>
+      </table></div>
+      <p>Module constants used from here on: <code>METHOD = "butina"</code>, <code>ARMS</code>, <code>N_REPEATS = 30</code>, <code>TUNING_SEED = 0</code>, <code>GIF_SEED = 0</code>, <code>MIN_CLUSTER_SIZE = 10</code>, and <code>KEY = ["arm", "distribution", "seed"]</code>.</p>
+
+      <h3><code>Experiment._splitter(distribution, seed)</code> → <code>Splitters</code> <span class="where">experiment.py:92–112 · splitters.py:228–348</span></h3>
+      <pre class="sig"><span class="k">Splitters</span>(df["smiles"], "butina", distribution, seed=seed,
+          min_cluster_size=10, distances=self.distances)
+<span class="c"># train_size=0.7, test_size=0.15 (module defaults TRAIN_SPLIT, TEST_SPLIT)</span></pre>
+      <div class="table-wrap"><table class="args">
+        <thead><tr><th>Argument</th><th>This run</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>method</code></td><td><code>"butina"</code></td><td><code>Chemist.butina_clusters(distances, cutoff=0.5)</code>: 1,113 clusters, ID 0 the largest (708 molecules). 0.13 s, so rebuilding it per seed is cheap</td></tr>
+          <tr><td><code>min_cluster_size</code></td><td><code>10</code></td><td><code>rows</code> keeps molecules in clusters of 10 or more: 219 clusters, 8,802 molecules. 2,254 (20.4%) never appear in any split</td></tr>
+          <tr><td><code>distribution="in"</code></td><td></td><td><code>StratifiedKFold(n_splits=round(1/(1−0.7))=3, shuffle, random_state=seed)</code> on cluster IDs, first fold only. The second cut uses <code>0.15/0.3 = 0.5</code>, so 2 folds. Realised: 5,868 / 1,467 / 1,467 on every seed</td></tr>
+          <tr><td><code>distribution="out"</code></td><td></td><td><code>GroupShuffleSplit(n_splits=1, train_size=0.7, random_state=seed)</code> with the clusters as groups. 70% <em>of clusters</em>, so molecule counts vary by seed (<a href="#splits">chart</a>)</td></tr>
+          <tr><td><code>seed</code></td><td>0…29</td><td>Only the shuffle. The clusters are identical for every seed</td></tr>
+          <tr><td><code>distances</code></td><td>shared matrix</td><td>Shape-checked against the SMILES, never recomputed</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>split()</code> returns positional <code>(train, test, valid)</code> indices. It is deterministic, so it can be called again and again: once in <code>_baseline</code>, once in each <code>Model._save_run_record</code>, and once more in <code>_run</code> for the row sizes.</p>
+
+      <h3><code>Experiment.tune(distributions=("in", "out"))</code> <span class="where">experiment.py:114–129</span></h3>
+      <pre class="sig"><span class="k">for</span> distribution <span class="k">in</span> distributions:
+    Tuner(self.df, self.target, self._splitter(distribution, TUNING_SEED)).optimise()</pre>
+      <p>This runs one Optuna study per distribution on seed 0's split. The resulting parameters are reused by every seed of that distribution, for both transformer arms.</p>
+
+      <h4><code>Tuner(df, target, splitter, n_trials=75, seed=0)</code> <span class="where">tuning.py:82–98</span></h4>
+      <div class="table-wrap"><table class="args">
+        <thead><tr><th>Argument / field</th><th>This run</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td><code>study_name</code></td><td><code>"EGFR-butina-in"</code>, <code>"EGFR-butina-out"</code></td><td><code>{target}-{method}-{distribution}</code>, with no mutation or cluster size (M1)</td></tr>
+          <tr><td><code>n_trials</code></td><td><code>N_TRIALS = 75</code></td><td>A total to reach across resumes, not trials to add</td></tr>
+          <tr><td><code>seed</code></td><td><code>TUNER_SEED = 0</code></td><td>Seeds TPE <em>and</em> every trial's <code>Model</code></td></tr>
+        </tbody>
+      </table></div>
+
+      <h4><code>Tuner.optimise()</code> <span class="where">tuning.py:190–219</span></h4>
+      <pre class="sig">optuna.create_study(study_name, storage="sqlite:///out/tuning/studies.db",
+    direction="minimize",
+    sampler=TPESampler(seed=0, n_startup_trials=10),
+    pruner=MedianPruner(n_startup_trials=10, n_warmup_steps=10),
+    load_if_exists=True)
+remaining = max(0, 75 - len(study.trials))       <span class="c"># counts FAIL + RUNNING too (M6)</span>
+study.optimize(self._objective, n_trials=remaining)
+self._save(study)   <span class="c"># out/tuning/{study}.json: study, trials, best_value, params</span></pre>
+
+      <h4><code>Tuner._search_space(trial)</code> <span class="where">tuning.py:100–126</span></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Model kwarg</th><th>Range</th><th>Scale</th><th>Model default</th></tr></thead>
+        <tbody>
+          <tr><td><code>lr</code></td><td>1e-5 – 1e-3</td><td>log</td><td>6.9e-5</td></tr>
+          <tr><td><code>llrd_decay</code></td><td>0.7 – 1.0</td><td>linear</td><td>0.9</td></tr>
+          <tr><td><code>weight_decay</code></td><td>0.0 – 0.3</td><td>linear</td><td>0.01</td></tr>
+          <tr><td><code>warmup_ratio</code></td><td>0.0 – 0.2</td><td>linear</td><td>0.1</td></tr>
+          <tr><td><code>dropout</code></td><td>0.05 – 0.30</td><td>linear</td><td>None (checkpoint's 0.144)</td></tr>
+          <tr><td><code>reinit_n</code></td><td>0 or 1</td><td>int</td><td>0</td></tr>
+          <tr><td class="muted">fixed</td><td colspan="3" class="muted"><code>batch_size=128</code>, <code>num_epochs=80</code>, <code>patience=5</code>: the <code>Model</code> defaults</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4><code>Tuner._objective(trial)</code> <span class="where">tuning.py:128–168</span></h4>
+      <pre class="sig">model = Model(df, target, splitter, seed=0, checkpoint=False, **sampled)
+<span class="k">return</span> model.fit(callback=report)["test_loss"].min()   <span class="c"># includes epoch -1 (L1)</span>
+<span class="c"># report(epoch, test_loss): trial.report(...); raise TrialPruned if should_prune()</span></pre>
+      <p>Trials are selected on the test split only. Valid is scored every epoch inside <code>fit()</code> but never read back.</p>
+
+      <h3><code>Experiment.grid(arms, distributions, seeds)</code> <span class="where">experiment.py:285–314</span></h3>
+      <pre class="sig">done, arms = self._done(), list(arms)     <span class="c"># {(arm, distribution, seed)} from the CSV</span>
+<span class="k">for</span> distribution, seed <span class="k">in</span> product(distributions, seeds):   <span class="c"># in×0..29, then out×0..29</span>
+    todo = [arm <span class="k">for</span> arm <span class="k">in</span> arms <span class="k">if</span> (arm, distribution, seed) <span class="k">not in</span> done]
+    <span class="k">if</span> todo:
+        splitter = self._splitter(distribution, seed)
+        <span class="k">for</span> arm <span class="k">in</span> todo:
+            self._run(arm, splitter)
+<span class="k">return</span> pd.read_csv(self.results_path)</pre>
+      <div class="table-wrap"><table class="args">
+        <thead><tr><th>Argument</th><th>This run</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td><code>arms</code></td><td>baseline, pretrained, finetuned</td><td>Innermost loop, so all three arms share one splitter</td></tr>
+          <tr><td><code>distributions</code></td><td>in, out</td><td>Outer loop (L6)</td></tr>
+          <tr><td><code>seeds</code></td><td><code>range(30)</code></td><td>Each seed drives both the split shuffle and the model seed</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>_done()</code> (experiment.py:272–283) reads only the <code>KEY</code> columns. The existing row <code>(baseline, in, 0)</code> will be skipped, so this run has 179 cells left to fill.</p>
+
+      <h3><code>Experiment._run(arm, splitter)</code> <span class="where">experiment.py:217–250</span></h3>
+      <p>This dispatches on <code>arm</code>: <code>"baseline"</code> → <code>_baseline</code>, otherwise <code>_transformer(splitter, freeze=arm == "pretrained")</code>. It then appends one row straight away, writing the header only if the file is new.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Column group</th><th>Columns</th></tr></thead>
+        <tbody>
+          <tr><td>what ran</td><td><code>target, mutation, method, distribution, arm, seed, min_cluster_size</code></td></tr>
+          <tr><td>realised split</td><td><code>n_train, n_test, n_valid</code> (from a fresh <code>split()</code>)</td></tr>
+          <tr><td>result</td><td><code>valid_rmse, valid_r2, best_epoch, run_dir, seconds</code></td></tr>
+        </tbody>
+      </table></div>
+
+      <h3><code>Experiment._baseline(splitter)</code> <span class="where">experiment.py:150–177</span></h3>
+      <pre class="sig">XGBRegressor(n_estimators=2000, learning_rate=0.05, max_depth=6, subsample=0.8,
+             colsample_bytree=0.5, early_stopping_rounds=50, random_state=splitter.seed)
+  .fit(X[train], y[train], eval_set=[(X[test], y[test])])
+preds = model.predict(X[valid])     <span class="c"># best iteration, not the last</span></pre>
+      <p>This returns <code>valid_rmse</code>, <code>valid_r2</code>, <code>best_epoch = best_iteration</code> (a boosting round) and <code>run_dir = None</code>. The one row already on disk scored valid R² 0.715, RMSE 1.618 (−ln units) at round 1,105, in 3.4 s.</p>
+
+      <h3><code>Experiment._transformer(splitter, freeze)</code> and <code>_params(distribution)</code> <span class="where">experiment.py:131–148, 179–215</span></h3>
+      <pre class="sig">params = json.loads(Path("out/tuning/EGFR-butina-{distribution}.json").read_text())["params"]
+<span class="k">if</span> freeze: params.pop("reinit_n")        <span class="c"># (as a dict comprehension)</span>
+model = Model(self.df, self.target, splitter, seed=splitter.seed,
+              checkpoint=<span class="k">not</span> freeze, trajectory=splitter.seed == GIF_SEED,
+              freeze=freeze, **params)
+model.fit(); metrics = model.evaluate()</pre>
+      <p><code>_params</code> raises <code>FileNotFoundError</code> when the study hasn't been run. That's deliberate: there is no silent fallback to defaults.</p>
+
+      <h4><code>Model(...)</code> arguments by caller <span class="where">model.py:247–321</span></h4>
+      <div class="table-wrap"><table class="args">
+        <thead><tr><th>Argument</th><th>Default</th><th>Tuning trial</th><th>Grid: pretrained</th><th>Grid: finetuned</th></tr></thead>
+        <tbody>
+          <tr><td><code>seed</code></td><td>0</td><td>0</td><td>split seed</td><td>split seed</td></tr>
+          <tr><td><code>reinit_n</code></td><td>0</td><td>sampled 0/1</td><td>0 (dropped)</td><td>tuned</td></tr>
+          <tr><td><code>model_link</code></td><td>DeepChem/ChemBERTa-10M-MTR</td><td>default</td><td>default</td><td>default</td></tr>
+          <tr><td><code>lr</code></td><td>6.9e-5</td><td>sampled</td><td>tuned for fine-tuning</td><td>tuned</td></tr>
+          <tr><td><code>llrd_decay</code></td><td>0.9</td><td>sampled</td><td>tuned (only the head's depth-0 rate matters)</td><td>tuned</td></tr>
+          <tr><td><code>weight_decay</code></td><td>0.01</td><td>sampled</td><td>tuned</td><td>tuned</td></tr>
+          <tr><td><code>warmup_ratio</code></td><td>0.1</td><td>sampled</td><td>tuned</td><td>tuned</td></tr>
+          <tr><td><code>dropout</code></td><td>None</td><td>sampled</td><td>tuned (head only, encoder in eval)</td><td>tuned</td></tr>
+          <tr><td><code>batch_size</code> · <code>num_epochs</code> · <code>patience</code></td><td>128 · 80 · 5</td><td>default</td><td>default</td><td>default</td></tr>
+          <tr><td><code>checkpoint</code></td><td>True</td><td>False</td><td>False</td><td>True</td></tr>
+          <tr><td><code>trajectory</code></td><td>False</td><td>False</td><td>seed == 0 (no effect without checkpoint)</td><td>seed == 0</td></tr>
+          <tr><td><code>freeze</code></td><td>False</td><td>False</td><td>True</td><td>False</td></tr>
+        </tbody>
+      </table></div>
+
+      <h4><code>Model.__init__</code>, in order</h4>
+      <ul class="plain">
+        <li><code>_seed(seed)</code> seeds Python, NumPy and torch (CPU and CUDA) and returns the generator the train loader shuffles with. This happens before the network exists, so the head's initialisation is seeded too.</li>
+        <li><code>_create_model_dir()</code> creates <code>out/models/EGFR-butina-{in|out}-{frozen|finetuned}-YYYY-mm-dd-HHMMSS/checkpoints/</code> with <code>exist_ok=True</code> (L3).</li>
+        <li>Tokeniser plus <code>RobertaForSequenceClassification(num_labels=1, hidden_dropout_prob=dropout)</code>, moved to CUDA if available. Then <code>_reinit_layers(reinit_n)</code> if above 0. With <code>freeze</code>, <code>roberta.requires_grad_(False)</code>.</li>
+        <li><code>_save_run_record()</code> writes <code>config.json</code> and <code>splits.parquet</code> (row, split) from <code>splitter.split()</code>. <code>split_frames()</code> reads them back with <code>iloc</code>.</li>
+        <li><code>_init_head_bias()</code> sets the head bias to the train-label mean. Then three pre-tokenised <code>DataLoader</code>s (max 128 tokens, only train shuffled), AdamW over LLRD groups (head, layers 3→1, embeddings, each split into decayed and undecayed), and a linear warmup/decay schedule over <code>len(train_loader) × 80</code> steps.</li>
+      </ul>
+
+      <h4><code>Model.fit(callback=None)</code> <span class="where">model.py:724–787</span></h4>
+      <pre class="sig">_record_epoch(-1)  → score test + valid, append to history.csv
+_checkpoint(-1)    → init.pt                        <span class="c"># if checkpoint</span>
+<span class="k">for</span> epoch <span class="k">in</span> range(80):
+    _train_epoch(epoch)                  <span class="c"># bf16 autocast, clip 1.0, scheduler per batch</span>
+    test_loss = _record_epoch(epoch)     <span class="c"># test + valid scored every epoch</span>
+    <span class="k">if</span> test_loss &lt; best: best, best_epoch, best_state = …  <span class="c"># CPU copy</span>
+    <span class="k">else</span>: stale += 1
+    _checkpoint(epoch)                   <span class="c"># epochNNN.pt only if trajectory</span>
+    callback(epoch, test_loss)           <span class="c"># tuning only; may raise TrialPruned</span>
+    <span class="k">if</span> stale &gt;= 5: <span class="k">break</span>
+<span class="k">if</span> checkpoint: best.pt from best_state</pre>
+      <p><code>evaluate()</code> (model.py:789–809) loads <code>best_state</code>, scores the valid loader and returns <code>{"rmse", "r2"}</code>. Predictions aren't saved; they can be recovered from any checkpoint with <code>split_frames()</code>.</p>
+
+      <h3><code>experiment(data_path, target, arm, distribution, seed, mutation)</code> <span class="where">experiment.py:317–345</span></h3>
+      <p>A standalone single-cell helper that the CLI doesn't use. Every call pays for preprocessing and the 76-second distance matrix again, and it doesn't tune, so it fails for transformer arms until <code>main()</code> or <code>Experiment.tune()</code> has written the JSON.</p>
+    </section>
+
+    <section id="splits">
+      <h2>Splits in practice</h2>
+      <p>These are real split sizes on the EGFR wild-type frame for all 30 seeds, computed in a scratch script from the same <code>Splitters</code> the grid uses. In-distribution sizes are identical on every seed. Out-of-distribution sizes move by thousands of molecules, because <code>GroupShuffleSplit</code> deals out 70% of <em>clusters</em>, and the clusters range from 10 to 708 molecules.</p>
+      <div class="legend" style="margin-top:16px">
+        <span><i class="dot in"></i>In-distribution (StratifiedKFold)</span>
+        <span><i class="dot out"></i>Out-of-distribution (GroupShuffleSplit), one dot per seed</span>
+      </div>
+      <figure style="margin-top:10px">
+        <div class="fig-scroll chart-box" id="splitbox">
+          <svg id="splitchart" viewBox="0 0 780 272" role="img" aria-label="Split sizes across 30 seeds. In-distribution: 5,868 train, 1,467 test, 1,467 valid on every seed. Out-of-distribution: train 5,200 to 6,991, test 788 to 2,493, valid 708 to 2,250."></svg>
+          <div class="tip" id="tip" hidden></div>
+        </div>
+        <figcaption>Molecules per split, out of the 8,802 kept after <code>min_cluster_size = 10</code>. The config asks for 70 / 15 / 15. Hover an orange dot to highlight that seed on all three rows: a seed with a large held-out set has a small training set.</figcaption>
+      </figure>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Distribution</th><th class="r">Train</th><th class="r">Test</th><th class="r">Valid</th><th class="r">Valid → nearest train (Tanimoto)</th><th class="r">Valid label mean</th></tr></thead>
+        <tbody>
+          <tr><td><span class="dot in"></span> in</td><td class="r">5,868 (66.7%)</td><td class="r">1,467</td><td class="r">1,467</td><td class="r">0.171 – 0.176</td><td class="r">—</td></tr>
+          <tr><td><span class="dot out"></span> out</td><td class="r">5,200 – 6,991 (59–79%)</td><td class="r">788 – 2,493</td><td class="r">708 – 2,250</td><td class="r">0.351 – 0.543</td><td class="r">−5.52 to −3.53</td></tr>
+        </tbody>
+      </table></div>
+      <p>The out split does what it is for: valid molecules sit 2.4× further from their nearest training neighbour than in the in-distribution split. The largest Butina cluster (708 molecules) lands in train on 20 seeds, in test on 5 and in valid on 5, and the valid label mean moves with it. Both effects feed M5.</p>
+    </section>
+
+    <section id="issues">
+      <h2>Issues</h2>
+      <p>Ranked by how much each one could change a conclusion drawn from the results. “Probe” means a scratch test in the scratchpad asserted the current behaviour and passed, so the behaviour is confirmed rather than inferred. No repository code was changed.</p>
+
+      <div class="sev-head"><span class="chip high">High</span><h3>These affect what Question 1 can conclude</h3></div>
+
+      <article class="issue lift">
+        <header><span class="chip high">H1</span><h4>Seed 0 is both the tuning run and a reported replicate</h4><span class="where">experiment.py:27, :31, :287 · tuning.py:18</span></header>
+        <dl>
+          <dt>What happens</dt><dd>Optuna picks the parameters with the lowest test loss on seed 0's split, and every trial uses model seed 0. The grid then builds the fine-tuned cell for (in or out, seed 0) with the same split, the same model seed and those parameters. It re-runs the winning trial, identical up to GPU nondeterminism. That cell's test loss is the best of 75 attempts by construction, and its valid score is probably optimistic too. No other arm or seed gets this treatment, and the GIF trajectory comes from the same cell.</dd>
+          <dt>Evidence</dt><dd><code>TUNING_SEED == TUNER_SEED == GIF_SEED == 0</code> and <code>0 in range(N_REPEATS)</code>. Probe <code>test_seed_zero_is_tuning_split_tuner_model_seed_and_a_reported_replicate</code> passes.</dd>
+          <dt>Fix</dt><dd>Tune on a seed outside the reported range, e.g. <code>TUNING_SEED = N_REPEATS</code>, or leave seed 0 out of the Q1 analysis. <code>GIF_SEED</code> can stay 0.</dd>
+        </dl>
+      </article>
+
+      <article class="issue lift">
+        <header><span class="chip high">H2</span><h4>Only the fine-tuned arm is tuned</h4><span class="where">experiment.py:38–45, :201–203 · tuning.py:164–167</span></header>
+        <dl>
+          <dt>What happens</dt><dd>Question 1 asks whether fine-tuning beats the frozen encoder and the fingerprint baseline. The fine-tuned arm gets a 75-trial search. The pretrained arm borrows those parameters, which were sized for moving the whole encoder. XGBoost runs one fixed configuration. Some of any gap in fine-tuning's favour will be a gap in tuning effort.</dd>
+          <dt>Evidence</dt><dd>The code path above. <code>todo.md</code> already flags the pretrained LR (a 2-epoch smoke run at 6.9e-5 finished near R² 0). The baseline half isn't logged anywhere.</dd>
+          <dt>Fix</dt><dd>Give the pretrained arm its own small study. Its encoder is frozen and in eval mode, so its features are fixed and could be computed once, which would make head-only trials cheap. Give XGBoost a short search too, or state the asymmetry in the write-up.</dd>
+        </dl>
+      </article>
+
+      <div class="sev-head"><span class="chip med">Medium</span><h3>Silent-reuse and methodology risks</h3></div>
+
+      <article class="issue">
+        <header><span class="chip med">M1</span><h4>Tuned parameters aren't tied to the frame they were tuned on</h4><span class="where">tuning.py:97, :204–213 · experiment.py:147–148</span></header>
+        <dl>
+          <dt>What happens</dt><dd>The study and its JSON are named <code>{target}-{method}-{distribution}</code>, which leaves out mutation, <code>min_cluster_size</code>, the label and the preprocessing. Say <code>--mutation L858R</code> is run after a wild-type run. <code>load_if_exists=True</code> resumes the finished wild-type study with 0 trials remaining and rewrites the same JSON, and the mutant grid is then fitted with wild-type parameters. The results file <em>is</em> keyed by mutation, so nothing in it shows the mismatch.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_study_name_ignores_mutation_and_min_cluster_size</code> passes. The issue is latent for now because <code>out/tuning/</code> doesn't exist yet.</dd>
+          <dt>Fix</dt><dd>Put mutation and <code>min_cluster_size</code> in the study name, or write the frame's size plus a hash of its SMILES into the JSON and check it in <code>_params</code>.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip med">M2</span><h4>Resume counts any existing row as done, whatever produced it</h4><span class="where">experiment.py:20, :272–283, :307–309</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>_done()</code> keys on <code>(arm, distribution, seed)</code> only. After a change to <code>MIN_CLUSTER_SIZE</code>, <code>XGB_PARAMS</code>, the tuned parameters, the epoch budget or the code, old rows still count as finished and new rows are appended to the same file. Smoke-run rows count by design. The existing <code>(baseline, in, 0)</code> row will be kept whatever changes before the real run.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_done_ignores_min_cluster_size</code>: an <code>Experiment</code> built with <code>min_cluster_size=5</code> ran nothing and returned the row from <code>min_cluster_size=1</code>.</dd>
+          <dt>Fix</dt><dd>Add <code>min_cluster_size</code> (and a hash of the config) to <code>KEY</code> or to the results filename, or check that existing rows match the current config before skipping them.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip med">M3</span><h4>A “smoke run” runs the full tuning first</h4><span class="where">experiment.py:369–371 · CLAUDE.md commands</span></header>
+        <dl>
+          <dt>What happens</dt><dd>Any transformer arm triggers <code>tune()</code> for every selected distribution, and <code>optimise()</code> runs each study up to 75 trials. The smoke example in CLAUDE.md, <code>uv run bertsheep EGFR --arms pretrained --seeds 3</code>, therefore runs 150 fine-tuning fits before its first pretrained cell. No flag caps the trials or skips tuning.</dd>
+          <dt>Fix</dt><dd>Add a <code>--trials</code> flag passed to <code>Tuner(n_trials=…)</code>, or a <code>--no-tune</code> flag that fails fast when the JSON is missing.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip med">M4</span><h4><code>reinit_n</code> can change what Question 2's “pre-trained” reference means</h4><span class="where">tuning.py:49 · model.py:295–296, :764–765</span></header>
+        <dl>
+          <dt>What happens</dt><dd>If the search picks <code>reinit_n = 1</code>, every fine-tuned run starts with a randomly re-initialised top encoder layer, and <code>init.pt</code> (the RSA reference) stores those random weights. Top-layer RSA would then measure random → trained rather than pre-trained → fine-tuned. The frozen arm drops <code>reinit_n</code>, so the two arms would also differ by more than freezing.</dd>
+          <dt>Fix</dt><dd>Pin <code>reinit_n = 0</code>, or compare against the published weights in Q2. Decide before the studies run, because the choice changes the search space.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip med">M5</span><h4>In and out are differently sized experiments</h4><span class="where">splitters.py:338–347</span></header>
+        <dl>
+          <dt>What happens</dt><dd>In-distribution rounds 0.70 and 0.15 to 3 folds, then 2, giving 5,868 / 1,467 / 1,467 on every seed. Out-of-distribution trains on 5,200–6,991 molecules and validates on 708–2,250, and its valid label mean ranges from −5.52 to −3.53. So an in–out gap mixes distribution shift with training-set size and valid-set composition, and R² on a small or shifted valid set is noisy.</dd>
+          <dt>Evidence</dt><dd>Measured on the real frame. See <a href="#splits">Splits in practice</a>.</dd>
+          <dt>Fix</dt><dd>Keep <code>n_train</code> and <code>n_valid</code> in the analysis (both are already recorded), report RMSE next to R², and consider an out split that balances molecules rather than clusters.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip med">M6</span><h4>The trial count includes failed and orphaned trials</h4><span class="where">tuning.py:214</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>75 − len(study.trials)</code> counts trials in the FAIL and RUNNING states. A process killed mid-trial leaves a RUNNING trial that counts forever, and a CUDA OOM counts as a trial. On restart, <code>TPESampler(seed=0)</code> resets its random state, so a resume inside the first 10 random trials re-proposes configurations that were already tried.</dd>
+          <dt>Fix</dt><dd>Count only COMPLETE and PRUNED trials, and mark stale RUNNING trials as failed on start.</dd>
+        </dl>
+      </article>
+
+      <div class="sev-head"><span class="chip low">Low</span><h3>Robustness, record-keeping and ergonomics</h3></div>
+
+      <article class="issue">
+        <header><span class="chip low">L1</span><h4>The tuning objective includes the untrained epoch</h4><span class="where">tuning.py:168</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>history["test_loss"].min()</code> includes epoch −1, the untrained model predicting the training mean, which <code>fit()</code> never selects. A trial that never beats the mean predictor scores as if it matched it. So does a trial that diverges to NaN, because <code>min()</code> skips NaN. The winner is unlikely to change, but TPE gets a flattering picture of bad regions of the search space.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_objective_min_includes_untrained_epoch</code>: the objective returns 0.5 while the selected epoch's loss is 2.0.</dd>
+          <dt>Fix</dt><dd>Take the minimum over epochs ≥ 0, i.e. the <code>best_epoch</code> row.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L2</span><h4>A NaN fit stops the whole grid</h4><span class="where">model.py:772–786, :641, :804</span></header>
+        <dl>
+          <dt>What happens</dt><dd>If test loss is NaN on every epoch, <code>best_epoch</code> and <code>best_state</code> stay <code>None</code>. In the fine-tuned arm, <code>fit()</code> then raises a bare <code>StopIteration</code> from <code>_save_checkpoint</code>. In the pretrained arm, <code>evaluate()</code> fails in <code>load_state_dict(None)</code>. Cells have no error handling, so one diverged fit stops the run, though resuming works.</dd>
+          <dt>Evidence</dt><dd>Probes <code>test_nan_fit_crashes_when_checkpointing</code> and <code>test_nan_fit_crashes_evaluate_without_checkpointing</code>.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L3</span><h4>Run directories are named to the second, with no seed</h4><span class="where">model.py:337–342</span></header>
+        <dl>
+          <dt>What happens</dt><dd>Two <code>Model</code>s built in the same second share a directory (<code>exist_ok=True</code>) and overwrite each other's <code>config.json</code> and <code>splits.parquet</code>. That's unlikely here, since every fit takes longer than a second. The bigger practical problem is that the 150 tuning trials and the 60 fine-tuned grid runs follow the same name pattern with no seed or trial number. Only the results CSV's <code>run_dir</code> column tells them apart.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_two_models_in_the_same_second_share_a_run_dir</code>.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L4</span><h4><code>config.json</code> omits the model seed</h4><span class="where">model.py:431–447</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>split_seed</code> is recorded, but <code>seed</code> (head initialisation, dropout, batch order), <code>checkpoint</code> and <code>trajectory</code> are not. In the grid the model seed equals the split seed, so it can be recovered, but the record doesn't say so.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_config_lacks_model_seed</code>.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L5</span><h4><code>grid()</code> raises when nothing ran and there's no results file</h4><span class="where">experiment.py:314</span></header>
+        <dl>
+          <dt>What happens</dt><dd>With <code>--seeds 0</code>, or on a first call whose cells are all filtered out, <code>read_csv</code> raises <code>FileNotFoundError</code>.</dd>
+          <dt>Evidence</dt><dd>Probe <code>test_grid_with_no_cells_and_no_results_file_raises</code>.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L6</span><h4>All in-distribution cells run before any out-of-distribution cell</h4><span class="where">experiment.py:308</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>product(distributions, seeds)</code> runs cells 1–90 (in), then 91–180 (out). A run stopped halfway has nothing to compare in against, and the out GIF trajectory is cell 93.</dd>
+          <dt>Fix</dt><dd>Put seeds in the outer loop.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L7</span><h4>ChemBERTa isn't pinned to a revision</h4><span class="where">model.py:254, :290–294</span></header>
+        <dl>
+          <dt>What happens</dt><dd>About 270 <code>Model</code> builds (150 trials plus 120 grid fits) each resolve <code>DeepChem/ChemBERTa-10M-MTR</code> from the Hub. <code>HF_HUB_OFFLINE</code> is set only in the tests. An upstream change mid-run would change the weights between cells, and <code>config.json</code> records only the name.</dd>
+          <dt>Fix</dt><dd>Pass <code>revision=</code> a commit hash and record it.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L8</span><h4>Paths are relative to the working directory</h4><span class="where">data.py:20–21 · experiment.py:18 · tuning.py:12 · model.py:22</span></header>
+        <dl>
+          <dt>What happens</dt><dd>Run from anywhere other than the repo root, <code>bertsheep</code> can't find the dump or the cache, and it creates a fresh <code>out/</code> tree wherever it was started.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L9</span><h4><code>best_epoch</code> means different things for different arms</h4><span class="where">experiment.py:175, :213</span></header>
+        <dl>
+          <dt>What happens</dt><dd>For the baseline it's a boosting round (0–1,999; 1,105 in the existing row). For the transformer arms it's a training epoch (0–79). Both share one column, which is easy to plot by mistake.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L10</span><h4>The CLI can't select pooled variants or a seed range</h4><span class="where">experiment.py:358–364</span></header>
+        <dl>
+          <dt>What happens</dt><dd><code>--mutation</code> takes a string, so <code>mutation=None</code> and the <code>"pooled"</code> results file can't be reached from the CLI. <code>--seeds N</code> always means 0…N−1, so seeds can't be spread across machines.</dd>
+        </dl>
+      </article>
+
+      <article class="issue">
+        <header><span class="chip low">L11</span><h4>The 76-second distance matrix is rebuilt on every start</h4><span class="where">experiment.py:84–86</span></header>
+        <dl>
+          <dt>What happens</dt><dd>The fingerprints (1.6 s) and the 11,056² Tanimoto matrix (76 s, 0.98 GB, single-threaded) are recomputed on every invocation. That includes baseline-only runs and resumes of a grid that has already finished. Small next to GPU time.</dd>
+        </dl>
+      </article>
+
+      <div class="sev-head"><span class="chip none">Notes</span><h3>Data-stage observations, no action implied</h3></div>
+      <article class="issue">
+        <header><span class="chip none">N1</span><h4>SMILES length is checked before canonicalisation</h4><span class="where">data.py:167 vs :263</span></header>
+        <dl><dt>Detail</dt><dd>A canonical SMILES can be longer than the raw one, so a few can exceed 128 characters. Tokeniser truncation at 128 tokens catches them.</dd></dl>
+      </article>
+      <article class="issue">
+        <header><span class="chip none">N2</span><h4>Replicates collapse to the median in nM, then −ln</h4><span class="where">data.py:256, :271</span></header>
+        <dl><dt>Detail</dt><dd>With an even number of measurements, this averages the two middle IC50 values on the linear scale rather than the log scale. The effect is tiny, and label semantics are frozen per CLAUDE.md, so this is noted only.</dd></dl>
+      </article>
+      <article class="issue">
+        <header><span class="chip none">N3</span><h4>RMSE is in natural-log units</h4><span class="where">data.py:271</span></header>
+        <dl><dt>Detail</dt><dd>The baseline's RMSE of 1.618 is 0.70 in log10 (pIC50) units. Divide by ln 10 ≈ 2.303 before comparing with published numbers. R² is unaffected.</dd></dl>
+      </article>
+    </section>
+
+    <section id="sound">
+      <h2>Checked and sound</h2>
+      <p>Things I suspected and then ruled out, or confirmed working as intended.</p>
+      <ul class="plain">
+        <li><span class="chip ok">ok</span> <strong>All three arms of a cell see identical rows.</strong> One <code>Splitters</code> per (distribution, seed), and <code>split()</code> is deterministic because it uses an integer <code>random_state</code>. Tested by <code>test_arms_are_scored_on_the_same_split</code>.</li>
+        <li><span class="chip ok">ok</span> <strong>Rebuilding Butina clusters for every seed is cheap.</strong> It takes 0.13 s on the real frame, because the distance matrix is shared rather than recomputed.</li>
+        <li><span class="chip ok">ok</span> <strong>Valid never drives a choice.</strong> XGBoost early-stops on test, <code>Model</code> selects epochs on test, and Optuna scores test. Valid is scored every epoch only for the R² curve in <code>history.csv</code>. It is printed, but no code reads it back.</li>
+        <li><span class="chip ok">ok</span> <strong>XGBoost predicts from the best round.</strong> After early stopping, <code>predict()</code> uses <code>best_iteration</code>. The existing row stopped at round 1,105 of 2,000.</li>
+        <li><span class="chip ok">ok</span> <strong>The frozen arm really is frozen.</strong> The encoder has <code>requires_grad=False</code> and is put back in eval mode each epoch, so dropout is off. AdamW skips parameters with no gradient, so there is no weight-decay drift. Tested by <code>test_frozen_epoch_trains_the_head_only</code>.</li>
+        <li><span class="chip ok">ok</span> <strong>Seeding comes before the head exists.</strong> The train loader shuffles with its own seeded generator, and the test and valid loaders don't shuffle.</li>
+        <li><span class="chip ok">ok</span> <strong>No leakage through indices or the head bias.</strong> Splits are positional and applied with <code>iloc</code>, and the head bias is the <em>train</em> label mean only.</li>
+        <li><span class="chip ok">ok</span> <strong>Resume works.</strong> Rows are appended as each cell finishes, and <code>np.int64</code> seeds read from the CSV hash the same as Python ints. Tested by <code>test_grid_resumes_rather_than_repeating</code>.</li>
+        <li><span class="chip ok">ok</span> <strong>The checkpoint budget matches <code>todo.md</code>.</strong> Each of the 60 fine-tuned runs writes <code>init.pt</code> and <code>best.pt</code>. Only the two seed-0 fine-tuned runs keep every epoch.</li>
+      </ul>
+    </section>
+
+    <section id="readme">
+      <h2>README vs code</h2>
+      <p>The README is the spec. This compares it claim by claim against what <code>uv run bertsheep EGFR</code> produces.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>README says</th><th>Status</th><th>What the code does</th></tr></thead>
+        <tbody>
+          <tr><td>Single target: EGFR from BindingDB</td><td><span class="chip ok">Matches</span></td><td><code>TARGET = {"EGFR": ("EGFR_HUMAN", "P00533")}</code>, wild type by default: 16,789 rows → 11,056 labels</td></tr>
+          <tr><td>“Binding affinity” label</td><td><span class="chip none">Unspecified</span></td><td>IC50 only, as <code>−ln(nM)</code> (natural log, not pIC50). Ki is loaded but unused, and no affinity cutoff is applied</td></tr>
+          <tr><td>Model: DeepChem/ChemBERTa-10M-MTR</td><td><span class="chip ok">Matches</span></td><td>Loaded into <code>RobertaForSequenceClassification(num_labels=1)</code>. Not pinned to a revision (L7)</td></tr>
+          <tr><td>Pre-trained arm: frozen model + trained regression head</td><td><span class="chip med">Partial</span></td><td><code>freeze=True</code>: encoder frozen and in eval mode. Hyperparameters are borrowed from the fine-tuned study (H2)</td></tr>
+          <tr><td>Fine-tuned arm: unfrozen model + trained head</td><td><span class="chip ok">Matches</span></td><td>Also uses LLRD, linear warmup/decay, optional top-layer re-init (M4), and early stopping on test</td></tr>
+          <tr><td>“Baseline” (named only in figure Q1a)</td><td><span class="chip none">Unspecified</span></td><td>XGBoost on 1,024-bit ECFP4, fixed parameters, early stopping on test</td></tr>
+          <tr><td>Two split strategies: Bemis-Murcko scaffolds and Butina clusters</td><td><span class="chip high">Diverges</span></td><td>Butina only (<code>METHOD = "butina"</code>). Scaffold splitting exists in <code>Splitters</code> but isn't in the grid. <code>todo.md</code> records the decision; the README still lists both</td></tr>
+          <tr><td>Fingerprint split specified, then dropped</td><td><span class="chip ok">Matches</span></td><td>Removed from <code>Splitters</code></td></tr>
+          <tr><td>Optuna TPE once, on the first seed's split, tuned on train + test, eval held out; other seeds reuse it</td><td><span class="chip med">Partial</span></td><td>One study per distribution, 75 trials, median pruning, valid never used. But the first seed is also reported as a replicate (H1). <code>todo.md</code> still has an open item saying “once per seed”</td></tr>
+          <tr><td>In-distribution: stratified by group</td><td><span class="chip ok">Matches</span></td><td><code>StratifiedKFold</code> on Butina IDs. Realised ratio 66.7 / 16.7 / 16.7, not 70 / 15 / 15</td></tr>
+          <tr><td>Out-of-distribution: group shuffle, groups held out</td><td><span class="chip ok">Matches</span></td><td><code>GroupShuffleSplit</code> on Butina IDs. Train fraction runs from 59% to 79% depending on the seed (M5)</td></tr>
+          <tr><td>Groups smaller than a minimum are dropped</td><td><span class="chip ok">Matches</span></td><td><code>MIN_CLUSTER_SIZE = 10</code> removes 894 of 1,113 clusters: 2,254 molecules (20.4%)</td></tr>
+          <tr><td>30 repeats; a new seed on both splitter and model</td><td><span class="chip ok">Matches</span></td><td>Seeds 0–29 drive both the split shuffle and <code>Model(seed=…)</code></td></tr>
+          <tr><td>Fig Q1(a): R² boxplot by arm, coloured by distribution</td><td><span class="chip med">Data only</span></td><td><code>valid_r2</code> is in every results row. No aggregation or plotting code yet</td></tr>
+          <tr><td>Fig Q1(b): fine-tuned R² per epoch</td><td><span class="chip med">Data only</span></td><td>Each run's <code>history.csv</code> has <code>test_r2</code> and <code>valid_r2</code> per epoch. Curves are ragged because of early stopping; nothing aggregates them</td></tr>
+          <tr><td>Q2(a): RSA per embedding layer, in vs out</td><td><span class="chip none">Not built</span></td><td>The inputs exist: <code>init.pt</code> and <code>best.pt</code> per fine-tuned run, and <code>embeddings()</code> (untested). RSA itself is undefined</td></tr>
+          <tr><td>Q2(b): RSA per attention layer</td><td><span class="chip none">Not built</span></td><td>Attention maps aren't stored. They can be recomputed from checkpoints with <code>output_attentions=True</code></td></tr>
+          <tr><td>2×3 aligned-UMAP GIF</td><td><span class="chip none">Not built</span></td><td>Per-epoch checkpoints come from the two seed-0 fine-tuned runs. <code>umap-learn</code> is installed, but there is no AlignedUMAP code</td></tr>
+        </tbody>
+      </table></div>
+      <p>In short: the run implements Question 1's experiment matrix and writes everything the Q1 figures need. It also writes the checkpoints Question 2 will need, but there is no analysis or figure code yet. The one outright divergence is the README's second split strategy.</p>
+    </section>
+
+    <section id="coverage">
+      <h2>Test coverage</h2>
+      <p>All 66 tests pass in about 11 s on CPU. The ChemBERTa weights are in the local Hugging Face cache, so the model tests ran rather than skipped. Coverage was measured with branch coverage and per-test contexts. The percentages below are coverage.py's combined statement-and-branch figure.</p>
+
+      <div class="cov-box" role="table" aria-label="Coverage by module">
+        <div class="cov-row head" role="row"><span role="columnheader">Module</span><span role="columnheader">Covered</span><span role="columnheader" class="pct">%</span><span role="columnheader" class="st">Statements</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">chemistry.py</span><span class="bar" role="cell"><span style="width:100%"></span></span><span class="pct" role="cell">100%</span><span class="st" role="cell">33 · 0 missed</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">splitters.py</span><span class="bar" role="cell"><span style="width:100%"></span></span><span class="pct" role="cell">100%</span><span class="st" role="cell">47 · 0 missed</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">model.py</span><span class="bar" role="cell"><span style="width:89%"></span></span><span class="pct" role="cell">89%</span><span class="st" role="cell">227 · 24 missed</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">experiment.py</span><span class="bar" role="cell"><span style="width:80%"></span></span><span class="pct" role="cell">80%</span><span class="st" role="cell">100 · 19 missed</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">tuning.py</span><span class="bar" role="cell"><span style="width:51%"></span></span><span class="pct" role="cell">51%</span><span class="st" role="cell">51 · 24 missed</span><span class="cov-note">Import-time lines only. Every <code>Tuner</code> method is at 0%.</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">data.py</span><span class="bar" role="cell"><span style="width:27%"></span></span><span class="pct" role="cell">27%</span><span class="st" role="cell">126 · 86 missed</span><span class="cov-note">Import-time lines only. All 15 <code>Data</code> methods are at 0%.</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">benchmark.py</span><span class="bar" role="cell"><span style="width:0%"></span></span><span class="pct" role="cell">0%</span><span class="st" role="cell">67 · 67 missed</span><span class="cov-note">Not on the run path.</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell">eda.py</span><span class="bar" role="cell"><span style="width:0%"></span></span><span class="pct" role="cell">0%</span><span class="st" role="cell">210 · 210 missed</span><span class="cov-note">Not on the run path.</span></div>
+        <div class="cov-row" role="row"><span class="name" role="cell"><strong>total</strong></span><span class="bar" role="cell"><span style="width:50%"></span></span><span class="pct" role="cell">50%</span><span class="st" role="cell">861 · 430 missed</span></div>
+      </div>
+
+      <h3>Where, method by method, in run order</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Method</th><th class="r">Cov.</th><th>Exercised by</th></tr></thead>
+        <tbody>
+          <tr><td><code>main()</code> <span class="where">experiment.py:348</span></td><td class="r"><span class="chip high">0%</span></td><td class="muted">nothing</td></tr>
+          <tr><td><code>Data</code>: <code>_load_cached</code> … <code>_preprocess</code> (15 methods)</td><td class="r"><span class="chip high">0%</span></td><td class="muted">nothing. <code>_parse_annotation</code>'s docstring examples are ready-made test cases</td></tr>
+          <tr><td><code>Experiment.__init__</code>, <code>_splitter</code></td><td class="r"><span class="chip ok">100%</span></td><td>9 tests in <code>test_experiment.py</code> via the fixture. <code>test_same_seed_gives_the_same_split[in|out]</code></td></tr>
+          <tr><td><code>Experiment.tune</code></td><td class="r"><span class="chip high">0%</span></td><td class="muted">nothing</td></tr>
+          <tr><td><code>Tuner</code>: <code>__init__</code>, <code>_search_space</code>, <code>_objective</code>, <code>report</code>, <code>_save</code>, <code>optimise</code></td><td class="r"><span class="chip high">0%</span></td><td class="muted">nothing. The prune path (<code>callback</code> at model.py:780) never runs either</td></tr>
+          <tr><td><code>Experiment._params</code></td><td class="r"><span class="chip high">0%</span></td><td class="muted">always monkeypatched in tests</td></tr>
+          <tr><td><code>Experiment.grid</code>, <code>_done</code></td><td class="r"><span class="chip ok">100%</span></td><td><code>test_arms_are_scored_on_the_same_split</code>, <code>test_grid_resumes_rather_than_repeating</code></td></tr>
+          <tr><td><code>Splitters</code> (all)</td><td class="r"><span class="chip ok">100%</span></td><td>28 tests in <code>test_splitters.py</code>, plus the model and experiment fixtures</td></tr>
+          <tr><td><code>Chemist</code> (all)</td><td class="r"><span class="chip ok">100%</span></td><td>13 tests in <code>test_chemistry.py</code></td></tr>
+          <tr><td><code>Experiment._run</code>, <code>run</code></td><td class="r"><span class="chip ok">100%</span></td><td>the grid tests and <code>test_transformer_arms_differ_only_in_freezing</code> ×4</td></tr>
+          <tr><td><code>Experiment._baseline</code></td><td class="r"><span class="chip ok">100%</span></td><td><code>test_baseline_is_repeatable</code>, <code>test_grid_resumes_rather_than_repeating</code> (real XGBoost on 40 molecules)</td></tr>
+          <tr><td><code>Experiment._transformer</code></td><td class="r"><span class="chip med">stub</span></td><td><code>test_transformer_arms_differ_only_in_freezing</code> ×4, with a fake <code>Model</code> and a fake <code>_params</code>. The real Experiment → Model wiring never runs</td></tr>
+          <tr><td><code>Model.__init__</code></td><td class="r"><span class="chip ok">96%</span></td><td>16 tests in <code>test_model.py</code>, all on scaffold splits, CPU, batch 8. Missed: the <code>reinit_n &gt; 0</code> branch (line 296)</td></tr>
+          <tr><td><code>Model._reinit_layers</code></td><td class="r"><span class="chip ok">100%</span></td><td>called directly by <code>test_reinit_resets_only_the_top_layers</code> and <code>test_reinit_of_zero_layers_changes_nothing</code></td></tr>
+          <tr><td><code>Model._train_epoch</code></td><td class="r"><span class="chip ok">92%</span></td><td>8 tests. Missed: the progress print (line 551)</td></tr>
+          <tr><td><code>Model.fit</code></td><td class="r"><span class="chip ok">94%</span></td><td><code>test_fit_smoke</code>, <code>test_fit_stops_early_and_keeps_the_best_epoch</code>, <code>test_trajectory_run_checkpoints_every_epoch</code>, <code>test_fit_without_checkpoints_still_evaluates</code>. Missed: the <code>callback</code> call</td></tr>
+          <tr><td><code>Model.evaluate</code></td><td class="r"><span class="chip ok">100%</span></td><td><code>test_evaluate_scores_the_best_weights_not_the_last</code>, <code>test_fit_without_checkpoints_still_evaluates</code></td></tr>
+          <tr><td><code>_save_run_record</code>, <code>split_frames</code>, checkpoint I/O</td><td class="r"><span class="chip ok">100%</span></td><td><code>test_config_records_what_rebuilds_the_split</code>, <code>test_split_frames_recovers_the_trained_splits</code>, <code>test_checkpoint_round_trip_restores_weights</code></td></tr>
+          <tr><td><code>embeddings()</code> <span class="where">model.py:77</span></td><td class="r"><span class="chip high">0%</span></td><td class="muted">nothing, and Question 2 depends on it</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>The gaps worth closing</h3>
+      <ul class="plain">
+        <li><strong>An unstubbed transformer cell.</strong> Run one <code>Experiment.run("finetuned", "in", 0)</code> on the 40-molecule fixture with a Butina split and a JSON written to a temp <code>TUNING_DIR</code>. This is the only way to exercise <code>_params</code> → <code>Model</code> → checkpoint/trajectory wiring together.</li>
+        <li><strong><code>Tuner</code> end to end.</strong> Use <code>n_trials=2</code> and 2 epochs on CPU, then resume to 3. Assert the JSON contents and the trial count, and cover the <code>TrialPruned</code> path through <code>fit(callback=…)</code>.</li>
+        <li><strong><code>Data</code> stages</strong> on a small in-memory frame: <code>_parse_annotation</code> cases, the raise and the warning in <code>_select_mutation</code>, and the median in <code>_deduplicate</code>. None of these need the 8.4 GB dump.</li>
+        <li><strong><code>main()</code></strong> with <code>Data</code> patched out. Check the argument plumbing and that a baseline-only run skips <code>tune()</code>.</li>
+        <li><strong><code>embeddings()</code></strong>: check the <code>(n_layers + 1, n, hidden)</code> shape on the checkpoint <code>test_fit_smoke</code> already writes.</li>
+      </ul>
+
+      <h3>Scratch probes run for this report</h3>
+      <p>Nine tests in <code>scratchpad/probe_tests/test_flow_probes.py</code>, all writing to temp directories. Each one asserts the <em>current</em> behaviour, so a pass confirms the issue. All 9 passed in 3.9 s.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Probe</th><th>Confirms</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>test_seed_zero_is_tuning_split_tuner_model_seed_and_a_reported_replicate</code></td><td>H1</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_study_name_ignores_mutation_and_min_cluster_size</code></td><td>M1</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_done_ignores_min_cluster_size</code></td><td>M2</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_objective_min_includes_untrained_epoch</code></td><td>L1</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_nan_fit_crashes_when_checkpointing</code></td><td>L2</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_nan_fit_crashes_evaluate_without_checkpointing</code></td><td>L2</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_two_models_in_the_same_second_share_a_run_dir</code></td><td>L3</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_config_lacks_model_seed</code></td><td>L4</td><td><span class="chip ok">pass</span></td></tr>
+          <tr><td><code>test_grid_with_no_cells_and_no_results_file_raises</code></td><td>L5</td><td><span class="chip ok">pass</span></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="drift">
+      <h2>Doc drift</h2>
+      <p>Found while tracing. These are in CLAUDE.md and todo.md, not the README, and each is stale against the code as of 1b17cf7.</p>
+      <ul class="plain">
+        <li>CLAUDE.md lists the pipeline as <code>_load → _filter → _deduplicate → _canonicalise → _transform_labels</code>. The real order is <code>_load_cached → _filter → _extract_mutations → _select_mutation → _canonicalise → _drop_acyclic → _deduplicate → _transform_labels</code>.</li>
+        <li>CLAUDE.md calls <code>chemistry.py</code> an empty placeholder. It holds the full <code>Chemist</code> class.</li>
+        <li>CLAUDE.md says torch, transformers and umap-learn are not in <code>pyproject.toml</code>. They are, along with optuna and xgboost.</li>
+        <li>CLAUDE.md says <code>Eda</code> writes to <code>figures/&lt;target&gt;_&lt;name&gt;.png</code>. <code>FIGURE_DIR</code> is <code>out/eda</code>.</li>
+        <li>CLAUDE.md says the README describes five kinase targets, Ki, an XGBoost baseline and nested CV, and that almost none of it is built. The README now describes EGFR only, doesn't mention Ki or XGBoost, and most of its Question 1 is built.</li>
+        <li><code>todo.md</code> leaves “Optuna (TPESampler) hyperparameter search, once per seed” open, but the README and the code both tune once, on the first seed.</li>
+      </ul>
+    </section>
+
+    <section id="method">
+      <h2>How this was made</h2>
+      <ul class="plain">
+        <li>Read every module on the run path (<code>experiment</code>, <code>data</code>, <code>chemistry</code>, <code>splitters</code>, <code>tuning</code>, <code>model</code>), the four test files, <code>README.md</code>, <code>todo.md</code> and the existing <code>out/</code> contents.</li>
+        <li>Coverage: <code>COVERAGE_CORE=ctrace uv run --no-sync --with pytest-cov pytest --cov=bertsheep --cov-branch --cov-context=test</code>. Data files, the JSON report and pytest's temp dirs went to the session scratchpad, and the cache provider was disabled.</li>
+        <li>Split measurements: a scratch script ran <code>Data._preprocess()</code> from the existing parquet cache, built the distance matrix, then called <code>Splitters.split()</code> for seeds 0–29 in both distributions. It wrote nothing inside the repo.</li>
+        <li>Probes: 9 scratch tests with <code>MODEL_DIR</code>, <code>EXPERIMENT_DIR</code> and <code>TUNING_DIR</code> monkeypatched to temp dirs.</li>
+        <li>No code was changed. <code>git status</code> shows only the <code>todo.md</code> edit that was already there, plus this file.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  /* ---------- run-order matrix ---------- */
+  var matrix = document.getElementById("matrix");
+  if (matrix) {
+    var arms = ["baseline", "pretrained", "finetuned"];
+    var dists = ["in", "out"];
+    var html = '<span></span>';
+    for (var s = 0; s < 30; s++) {
+      html += '<span class="ch">' + ([0, 5, 10, 15, 20, 25, 29].indexOf(s) >= 0 ? s : "") + "</span>";
+    }
+    dists.forEach(function (d, di) {
+      if (di === 1) html += '<span class="gap"></span>';
+      arms.forEach(function (a, ai) {
+        html += '<span class="rl"><i class="dot ' + d + '"></i>' + d + " · " + a + "</span>";
+        for (var s = 0; s < 30; s++) {
+          var n = di * 90 + s * 3 + ai + 1;
+          var cls = "cell";
+          var note = "missing";
+          if (d === "in" && a === "baseline" && s === 0) {
+            cls += " done";
+            note = "done: valid R² 0.715, RMSE 1.618";
+          } else if (s === 0 && a === "finetuned") {
+            cls += " traj";
+            note = "missing; keeps every epoch for the GIF; replays the winning Optuna trial";
+          } else if (s === 0) {
+            cls += " s0";
+            note = "missing; seed 0 is the tuning split";
+          }
+          html += '<span class="' + cls + '" title="#' + n + " of 180 · " + d + " · " + a + " · seed " + s + " · " + note + '"></span>';
+        }
+      });
+    });
+    matrix.innerHTML = html;
+  }
+
+  /* ---------- split-size strip chart ---------- */
+  var svg = document.getElementById("splitchart");
+  var box = document.getElementById("splitbox");
+  var tip = document.getElementById("tip");
+  if (!svg) return;
+  var KEPT = 8802;
+  // seed: [train, test, valid, train label mean, valid label mean, valid nearest-train Tanimoto]
+  var OUT = [
+    [6386,1472,944,-4.30,-5.37,.432],[5924,2077,801,-4.92,-4.64,.471],[5566,1298,1938,-4.44,-4.92,.446],
+    [6263,1626,913,-4.60,-4.80,.399],[6420,1394,988,-4.55,-5.52,.472],[6040,1717,1045,-4.42,-5.14,.471],
+    [5219,1798,1785,-4.90,-3.64,.351],[6273,1524,1005,-4.56,-4.50,.443],[5288,1455,2059,-4.87,-3.58,.364],
+    [6132,1357,1313,-4.36,-5.47,.421],[5674,1319,1809,-4.39,-5.06,.424],[5345,1526,1931,-4.84,-3.77,.413],
+    [5996,1595,1211,-4.59,-4.81,.543],[6823,897,1082,-4.34,-5.47,.429],[5974,1544,1284,-4.48,-5.00,.419],
+    [6486,1414,902,-4.39,-5.47,.386],[5305,2064,1433,-5.21,-3.91,.418],[5796,1563,1443,-4.93,-3.53,.363],
+    [5493,2493,816,-4.89,-4.83,.447],[6339,1019,1444,-4.47,-4.39,.383],[6524,788,1490,-4.48,-4.32,.408],
+    [6317,884,1601,-4.30,-5.21,.413],[6303,1258,1241,-4.49,-4.88,.399],[6717,1051,1034,-4.42,-5.34,.417],
+    [6193,1789,820,-4.71,-4.96,.509],[6703,1056,1043,-4.42,-5.23,.388],[5200,1352,2250,-4.82,-3.95,.405],
+    [6991,883,928,-4.59,-4.91,.421],[6557,1537,708,-4.73,-5.43,.421],[6633,1249,920,-4.43,-5.35,.415]
+  ];
+  var IN = [5868, 1467, 1467];
+  var ROWS = [["Train", "asked 70%"], ["Test", "asked 15%"], ["Valid", "asked 15%"]];
+  var NS = "http://www.w3.org/2000/svg";
+  var x0 = 74, x1 = 756, top = 8, gh = 74, MAX = 7000;
+  function sx(v) { return x0 + v / MAX * (x1 - x0); }
+  function fmt(v) { return v.toLocaleString("en-GB"); }
+  function el(name, attrs, text) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    svg.appendChild(e);
+    return e;
+  }
+  var bottom = top + gh * 3;
+  for (var t = 0; t <= MAX; t += 1000) {
+    el("line", { x1: sx(t), x2: sx(t), y1: top, y2: bottom, "class": "ch-grid" });
+    el("text", { x: sx(t), y: bottom + 16, "class": "ch-tick", "text-anchor": t === MAX ? "end" : "middle" }, fmt(t));
+  }
+  el("text", { x: x1, y: bottom + 34, "class": "ch-sub", "text-anchor": "end" }, "molecules in split");
+
+  var outDots = [];
+  ROWS.forEach(function (r, k) {
+    var gy = top + k * gh;
+    var inY = gy + 18, outY = gy + 42;
+    el("text", { x: 0, y: gy + 30, "class": "ch-row" }, r[0]);
+    el("text", { x: 0, y: gy + 46, "class": "ch-sub" }, r[1]);
+    // in: identical on every seed
+    el("circle", { cx: sx(IN[k]), cy: inY, r: 5.5, "class": "ch-in" });
+    el("text", { x: sx(IN[k]) + 10, y: inY + 4, "class": "ch-lab" }, fmt(IN[k]) + " on every seed");
+    var hitIn = el("circle", { cx: sx(IN[k]), cy: inY, r: 10, "class": "ch-hit" });
+    hitIn.addEventListener("mouseenter", function (ev) {
+      show(ev, "<b>In-distribution · all 30 seeds</b><br>" + r[0] + " " + fmt(IN[k]) + " (" + (IN[k] / KEPT * 100).toFixed(1) + "% of 8,802)");
+    });
+    hitIn.addEventListener("mousemove", move);
+    hitIn.addEventListener("mouseleave", hide);
+    // out: one dot per seed
+    var vals = OUT.map(function (o) { return o[k]; });
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    el("line", { x1: sx(lo), x2: sx(hi), y1: outY, y2: outY, "class": "ch-range" });
+    el("text", { x: sx(lo), y: outY + 22, "class": "ch-lab" }, fmt(lo) + " – " + fmt(hi) + " across 30 seeds");
+    OUT.forEach(function (o, s) {
+      var jy = outY + (((s * 7) % 11) - 5) * 1.1;
+      var dot = el("circle", { cx: sx(o[k]), cy: jy, r: 4.5, "class": "ch-out", "data-seed": s });
+      outDots.push(dot);
+    });
+    OUT.forEach(function (o, s) {
+      var jy = outY + (((s * 7) % 11) - 5) * 1.1;
+      var hit = el("circle", { cx: sx(o[k]), cy: jy, r: 8, "class": "ch-hit" });
+      hit.addEventListener("mouseenter", function (ev) {
+        highlight(s);
+        show(ev, "<b>Seed " + s + " · out-of-distribution</b><br>" +
+          r[0] + " " + fmt(o[k]) + " (" + (o[k] / KEPT * 100).toFixed(1) + "% of 8,802)<br>" +
+          "train / test / valid: " + fmt(o[0]) + " / " + fmt(o[1]) + " / " + fmt(o[2]) + "<br>" +
+          "valid label mean " + o[4].toFixed(2) + " vs train " + o[3].toFixed(2) + "<br>" +
+          "valid → nearest train: " + o[5].toFixed(3));
+      });
+      hit.addEventListener("mousemove", move);
+      hit.addEventListener("mouseleave", function () { highlight(-1); hide(); });
+    });
+  });
+
+  function highlight(seed) {
+    outDots.forEach(function (d) {
+      var on = +d.getAttribute("data-seed") === seed;
+      d.classList.toggle("hl", on);
+      d.setAttribute("r", on ? 6 : 4.5);
+      if (on) d.parentNode.appendChild(d);
+    });
+  }
+  function show(ev, html) { tip.innerHTML = html; tip.hidden = false; move(ev); }
+  function move(ev) {
+    var b = box.getBoundingClientRect();
+    var x = ev.clientX - b.left + box.scrollLeft + 14;
+    var y = ev.clientY - b.top + 14;
+    var w = tip.offsetWidth;
+    if (x + w > box.scrollLeft + b.width - 8) x = ev.clientX - b.left + box.scrollLeft - w - 14;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hide() { tip.hidden = true; }
+})();
+</script>

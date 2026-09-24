@@ -23,6 +23,11 @@ Hypothesis: if the model is simply re-learning rough scaffolds, then fine-tuning
 
 How do the **embedding** layers differ between pre-trained and fine-tuned models?
 
+### Question 2.1
+
+How do fine-tuning methods (e.g. reinit_n and LLRD) affect the embedding layers?\
+Future focus (if we have time to implement)
+
 ## Setup
 
 ### Model
@@ -80,4 +85,3 @@ y: in-distribution, out-of-distribution
 > 1. Capture each (a) embedding layer and (b) attention layer at each fine-tuning epoch.
 > 2. Visualise each w/ aligned UMAP.
 > 3. Convert to GIF.
-

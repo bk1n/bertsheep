@@ -3,9 +3,9 @@
 `README.md` is the spec. This lists what it asks for that `src/bertsheep/` does
 not do yet, at the level of "what needs building", not how.
 
-## Before any real run
+## URGENT
 
-- [ ] Run `benchmark.py` on the real EGFR frame — seconds/epoch and peak VRAM on the 4060 decide the Optuna trial budget and whether cloud compute is needed
+- [x] Run `benchmark.py` on the real EGFR frame — seconds/epoch and peak VRAM on the 4060 decide the Optuna trial budget and whether cloud compute is needed
     - [x] benchmark.py: add benchmark of train loss vs test loss w/ autocast on + off (are speed up improvements costing performance)
 - [x] data.py: 
     - [x] add parquet caching of data_path target data frames; if fetched again, use parquet rather than loading full CSV; save to out/.cache/
@@ -31,28 +31,21 @@ not do yet, at the level of "what needs building", not how.
     - [x] Implement early stopping
 - [x] tuning.py
     - [x] Implement Optuna hyperparameter optimisation w/ TPESampler
+    - [ ] Don't include fine-tuning hyperparameters in the search yet; e.g. LLRD, reinit_n
+    - [ ] Implement complementary tuning for pretrained model
+    - [ ] Implement basic hyperparameter optim for XGBoost model
 - [x] experiment.py
     - [x] standalone experiment() method, convert Data (target, mutation), Splitter(method, distribution), Model() from strings into actual instantiations ready to fit + run
     - [x] add tests to ensure methods output consistently everytime
     - [x] implement a suite of experiments that answer questions in README.md
     - [x] don't implement scaffold splits; Butina splits are working much better than BM scaffolds for this; doesn't need to be comprehensive
-    - [ ] The pre-trained arm reuses the LR tuned for fine-tuning, which is sized for moving the whole encoder; a head alone may want a larger one. A 2-epoch smoke run at 6.9e-5 left it near R2 = 0. Check its curves on the first real seeds before running all 30 -- if it is still climbing at `num_epochs`, the comparison is against an undertrained head
     - [x] Command-line runner: `uv run bertsheep <target>` preprocesses, tunes (resuming the SQLite study) and runs the missing grid cells; `--arms`/`--distributions`/`--seeds` narrow it for smoke runs
-    - [ ] `MUTATION` defaults to wildtype (11k labels on EGFR); the tuning study has to be run on the same frame, via `Experiment.tune()`
+    - [x] `MUTATION` defaults to wildtype (11k labels on EGFR); the tuning study has to be run on the same frame, via `Experiment.tune()`
+    - [ ] Add caching for distance matrix on target + mutation status; saves remaking Tanimoto distance matrix every run
 
 ## Question 1 — does fine-tuning help?
 
-- [x] Three model arms scored on identical splits: XGBoost fingerprint baseline, pre-trained (frozen encoder + trained head), fine-tuned
-- [ ] Optuna (TPESampler) hyperparameter search, once per seed, tuned on train + test, reported on held-out valid
-- [x] Experiment runner: arm x distribution (in, out) x 30 seeds on Butina splits, one results row per run — 180 runs, resumable (`Experiment.grid`). Fingerprint splitting is gone: its greedy deal is deterministic, so its 30 repeats would have resampled the model rather than the chemistry, and its boxplot would not have been measuring what the other two were
 - [ ] Results aggregation into one tidy frame, then the four-panel figure (in/out-of-distribution R2 boxplots + fine-tuned R2 curves per epoch)
-
-## Question 2 — how does fine-tuning change the latent space?
-
-- [ ] Define RSA (pre-trained vs fine-tuned representational similarity per layer)
-- [ ] Capture embedding and attention-layer activations per fine-tuning epoch
-- [ ] RSA line plots per layer, in vs out-of-distribution
-- [ ] Aligned-UMAP GIF (first/middle/last layer x in/out), from `GIF_SEED`'s two fine-tuned runs (Butina only now, so one GIF)
 
 ## Housekeeping
 
