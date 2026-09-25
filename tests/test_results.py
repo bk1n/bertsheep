@@ -73,3 +73,61 @@ def test_q1_writes_figure(results_path: Path, tmp_path: Path,
     path = Results(results_path).q1()
     assert path == tmp_path / "figures" / "EGFR-wildtype_q1.png"
     assert path.stat().st_size > 0
+
+
+@pytest.fixture
+def trajectories(results_path: Path) -> list[br.Trajectory]:
+    """
+    One fake trajectory per distribution over the fixture's fine-tuned
+    histories: random coordinates for every GIF layer and epoch, so the Q2
+    figures can be drawn without ChemBERTa or aligned UMAP.
+    """
+    rng = np.random.default_rng(0)
+    df = pd.read_csv(results_path)
+    runs = df[df["arm"] == "finetuned"].set_index("distribution")
+    n = 30
+    molecules = pd.DataFrame({
+        "split": np.repeat(["train", "test", "valid"], n // 3),
+        "labels": rng.normal(size=n),
+        "cluster": rng.integers(0, 50, n),
+    })
+    return [
+        br.Trajectory(distribution, molecules,
+                      rng.normal(size=(len(br.GIF_LAYERS), EPOCHS + 1, n, 2)),
+                      pd.read_csv(Path(runs.loc[distribution, "run_dir"]) / "history.csv"),
+                      best_epoch=3)
+        for distribution in DISTRIBUTIONS
+    ]
+
+
+def test_at_interpolates_between_epochs_and_holds_after_the_last(
+        trajectories: list[br.Trajectory], results_path: Path) -> None:
+    results, trajectory = Results(results_path), trajectories[0]
+    coords = trajectory.coords[0]
+    np.testing.assert_allclose(results._at(trajectory, 0, -1), coords[0])
+    np.testing.assert_allclose(results._at(trajectory, 0, 0.5),
+                               (coords[1] + coords[2]) / 2)
+    np.testing.assert_allclose(results._at(trajectory, 0, EPOCHS + 5), coords[-1])
+
+
+def test_status_marks_start_selection_and_stop(
+        trajectories: list[br.Trajectory], results_path: Path) -> None:
+    results, trajectory = Results(results_path), trajectories[0]
+    assert "pretrained" in results._status(trajectory, -1)
+    assert results._status(trajectory, 3.5).endswith("epoch 3 (selected)")
+    assert "stopped after epoch 9" in results._status(trajectory, EPOCHS - 1)
+
+
+@pytest.mark.parametrize("colour", br.COLOURINGS)
+def test_q2_writes_gif_and_filmstrip(
+        trajectories: list[br.Trajectory], results_path: Path, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch, colour: str) -> None:
+    monkeypatch.setattr(br, "FIGURE_DIR", tmp_path / "figures")
+    monkeypatch.setattr(br, "HOLD_FRAMES", 1)
+    monkeypatch.setattr(br, "TWEEN_FRAMES", 1)
+    monkeypatch.setattr(br, "DPI", 50)
+    results = Results(results_path)
+    results.trajectories = trajectories  # stands in for the cached property
+    for path in (results.q2_gif(colour), results.q2_filmstrip(colour)):
+        assert path.parent == tmp_path / "figures"
+        assert path.stat().st_size > 0
