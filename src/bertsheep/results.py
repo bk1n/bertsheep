@@ -18,15 +18,18 @@ LOESS_FRAC = 0.3
 POINT_SIZE = 5
 # Low because a panel holds every seed's every epoch: ~5k points per arm at 30.
 POINT_ALPHA = 0.2
-# Grey for the baseline, which is a reference line rather than a curve; blue and
-# orange are the colourblind-safe pair eda.py settles on.
-ARM_COLOURS = {"baseline": "grey", "pretrained": "tab:blue",
-               "finetuned": "tab:orange"}
-# The baseline is XGBoost on Morgan fingerprints; the other two are ChemBERTa.
-ARM_LABELS = {"baseline": "XGBoost + FPS", "pretrained": "Pretrained",
-              "finetuned": "Fine-tuned"}
+# Greys for the references, which are lines rather than curves, the lighter for
+# the one with no chemistry in it; blue and orange are the colourblind-safe
+# pair eda.py settles on.
+ARM_COLOURS = {"cluster_mean": "lightgrey", "baseline": "grey",
+               "pretrained": "tab:blue", "finetuned": "tab:orange"}
+# The baseline is XGBoost on Morgan fingerprints; the last two are ChemBERTa.
+ARM_LABELS = {"cluster_mean": "Cluster mean", "baseline": "XGBoost + FPS",
+              "pretrained": "Pretrained", "finetuned": "Fine-tuned"}
+# Arms scored once on valid rather than per epoch, drawn as horizontal lines.
+REFERENCE_ARMS = ("cluster_mean", "baseline")
 SPLIT_LABELS = {"train": "train", "test": "test", "valid": "validation"}
-# Dotted for valid, so the baseline -- also a valid score -- takes dash-dot.
+# Dotted for valid, so the references -- also valid scores -- take dash-dot.
 SPLIT_STYLES = {"train": "--", "test": "-", "valid": ":"}
 # The model loss is MSE on the -ln IC50 (nM) label, see eda.LABEL_AXIS.
 LOSS_AXIS = "MSE, -ln IC50 (nM)"
@@ -35,8 +38,9 @@ LOSS_AXIS = "MSE, -ln IC50 (nM)"
 # curve would be the few longest runs, not the arm.
 SURVIVOR_SHARE = 0.3
 Q1_FIGSIZE = (12, 8)
-# Boxes need less room than curves over tens of epochs.
-Q1_WIDTH_RATIOS = (1, 2)
+# Boxes need less room than curves over tens of epochs, but enough that four
+# arm names fit under them.
+Q1_WIDTH_RATIOS = (2, 3)
 
 
 class Results:
@@ -103,7 +107,8 @@ class Results:
         """
         Train, test and valid loss per epoch for the two transformer arms on one
         distribution: every seed's value as a point, with a LOESS trend per arm
-        and split. The baseline counts boosting rounds, not epochs, so it is a
+        and split. The reference arms have no epochs -- the baseline counts
+        boosting rounds, the cluster mean fits nothing -- so each is a
         horizontal line at its mean valid MSE rather than a curve.
 
         Parameters
@@ -123,10 +128,11 @@ class Results:
                        alpha=POINT_ALPHA, color=colour, linewidths=0)
             ax.plot(*lowess(group["loss"], group["epoch"], frac=LOESS_FRAC).T,
                     color=colour, ls=SPLIT_STYLES[split], label=f"{ARM_LABELS[arm]} {SPLIT_LABELS[split]}")
-        baseline = self.df[(self.df["arm"] == "baseline")
-                           & (self.df["distribution"] == distribution)]
-        ax.axhline((baseline["valid_rmse"] ** 2).mean(),
-                   color=ARM_COLOURS["baseline"], ls="-.", label=f"{ARM_LABELS['baseline']} {SPLIT_LABELS['valid']}")
+        for arm in REFERENCE_ARMS:
+            scores = self.df[(self.df["arm"] == arm)
+                             & (self.df["distribution"] == distribution)]
+            ax.axhline((scores["valid_rmse"] ** 2).mean(), color=ARM_COLOURS[arm],
+                       ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['valid']}")
         ax.set(title=f"{distribution}-distribution", xlabel="Epoch",
                ylabel=LOSS_AXIS)
         # Epochs are whole; left alone, the out panel's short range gets halves.

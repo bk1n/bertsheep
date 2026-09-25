@@ -25,8 +25,13 @@ METHOD = "butina"
 # "mean" predicts the train mean: the floor every model has to clear. R2 = 0
 # is not that floor, since it scores against the valid set's own mean, which
 # no model could know -- least of all out of distribution.
-ARMS = ("mean", "baseline", "pretrained", "finetuned")
-UNTUNED = {"mean"}  # arms with no hyperparameters to search
+# "cluster_mean" predicts each molecule's Butina cluster's train mean: what
+# knowing the series alone is worth. In distribution every valid cluster is in
+# train, so it is the floor a model has to clear to have learnt chemistry
+# within a series; out of distribution no valid cluster is, so it falls back to
+# the train mean everywhere and scores exactly as "mean" does.
+ARMS = ("mean", "cluster_mean", "baseline", "pretrained", "finetuned")
+UNTUNED = {"mean", "cluster_mean"}  # arms with no hyperparameters to search
 N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
 # The search runs once, on the first replicate's split; every seed reuses it.
 TUNING_SEED = 0
@@ -179,6 +184,34 @@ class Experiment:
             "run_dir": None,
         }
 
+    def _cluster_mean(self, splitter: Splitters) -> dict[str, float | str | None]:
+        """
+        Predict each valid molecule's cluster mean over train, or the train
+        mean where its cluster has no train molecules: what a model scores
+        from knowing which series a molecule belongs to, with no chemistry
+        inside the series.
+
+        Parameters
+        ----------
+        splitter : Splitters
+            Split to fit and score on; its clusters are the series.
+
+        Returns
+        -------
+        dict[str, float | str | None]
+            Valid RMSE and R2, and no epoch or run directory.
+        """
+        train, _, valid = splitter.split()
+        y = self.df["labels"].to_numpy()
+        means = pd.Series(y[train]).groupby(splitter.clusters[train]).mean()
+        preds = pd.Series(splitter.clusters[valid]).map(means).fillna(y[train].mean())
+        return {
+            "valid_rmse": root_mean_squared_error(y[valid], preds),
+            "valid_r2": r2_score(y[valid], preds),
+            "best_epoch": None,
+            "run_dir": None,
+        }
+
     def _baseline(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
         Fit XGBoost with its tuned parameters and score it on valid, once, at
@@ -263,6 +296,8 @@ class Experiment:
         start = time.time()
         if arm == "mean":
             result = self._mean(splitter)
+        elif arm == "cluster_mean":
+            result = self._cluster_mean(splitter)
         elif arm == "baseline":
             result = self._baseline(splitter)
         else:

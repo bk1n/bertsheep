@@ -14,13 +14,15 @@ EPOCHS = 10
 @pytest.fixture
 def results_path(tmp_path: Path) -> Path:
     """
-    A results file shaped like Experiment.grid()'s: a baseline row with no
-    run_dir and a pretrained and a fine-tuned run per distribution, each with a
+    A results file shaped like Experiment.grid()'s: a cluster-mean and a
+    baseline row with no run_dir and a pretrained and a fine-tuned run per distribution, each with a
     history.csv that starts at epoch -1 with no train loss, as Model.fit()'s does.
     """
     rng = np.random.default_rng(0)
     rows = []
     for distribution in DISTRIBUTIONS:
+        rows.append({"arm": "cluster_mean", "distribution": distribution, "seed": 0,
+                     "valid_rmse": 2.0, "valid_r2": 0.3, "run_dir": None})
         rows.append({"arm": "baseline", "distribution": distribution, "seed": 0,
                      "valid_rmse": 1.5, "valid_r2": 0.6, "run_dir": None})
         for arm in ("pretrained", "finetuned"):
@@ -46,7 +48,7 @@ def test_histories_are_long_and_complete(results_path: Path) -> None:
                                        "split", "loss"]
     assert not histories["loss"].isna().any()
     assert set(histories["split"]) == {"train", "test", "valid"}
-    assert "baseline" not in set(histories["arm"])
+    assert set(histories["arm"]) == {"pretrained", "finetuned"}
     # 4 runs x (EPOCHS + 1 test and valid losses each + EPOCHS train losses)
     assert len(histories) == 4 * (3 * EPOCHS + 2)
 

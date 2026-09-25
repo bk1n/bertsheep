@@ -48,6 +48,7 @@ not do yet, at the level of "what needs building", not how.
 ## Question 1 — does fine-tuning help?
 
 - [ ] Results aggregation into one tidy frame, then the four-panel figure (in/out-of-distribution R2 boxplots + fine-tuned R2 curves per epoch)
+- [x] Cluster-mean reference arm (`cluster_mean`): each valid molecule's Butina-cluster train mean, so in-distribution scores can be read against what knowing the series alone gets (R2 ~0.55 on EGFR). Out of distribution it is identical to `mean` by construction
 
 ## Question 2.1 — fine-tuning methods
 

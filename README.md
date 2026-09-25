@@ -87,3 +87,14 @@ y: in-distribution, out-of-distribution
 > 1. Capture each (a) embedding layer and (b) attention layer at each fine-tuning epoch.
 > 2. Visualise each w/ aligned UMAP.
 > 3. Convert to GIF.
+
+### Results Interpretation
+
+Training compounds move with validation compounds.
+In both in-distribution + out-of-distribution, training error is low. 
+We can see from in-distribution UMAP, that (a) the latent space is reorganised around affinity, and (b) the validation molecules move in latent space with their training molecules. In out-of-distribution, we can see that (a) the latent space is **still** reorganised around affinity, but (b) training molecules are moving a lot whilst the validation molecules are remaining in similar locations. 
+As the out-of-distribution clusters had no training molecules, nothing is causing these to move in affinity space, suggesting the model is struggling to generalise to out-of-distribution compounds.
+
+This also shows us that the models are capable of predicting in-distribution affinity.
+Question: can the model predict in-distribution affinity better than simple cluster-mean? If so, it suggests the model is learning more than basic Butina clusters, learning something about chemical space that generalises across in-distribution compounds. If no, the model is simply relearning Butina-like clusters in the data and mapping those to affinity.
+

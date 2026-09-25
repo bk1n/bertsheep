@@ -59,12 +59,19 @@ def test_arms_are_scored_on_the_same_split(
         return _fake_transformer(splitter, "finetuned")
 
     monkeypatch.setattr(experiment, "_mean", record)
+    monkeypatch.setattr(experiment, "_cluster_mean", record)
     monkeypatch.setattr(experiment, "_baseline", record)
     monkeypatch.setattr(experiment, "_transformer", record)
     experiment.grid(distributions=["out"], seeds=[0])
     assert len(seen) == len(ARMS)
     for split in seen[1:]:
         assert all(np.array_equal(a, b) for a, b in zip(seen[0], split))
+
+
+def test_cluster_mean_is_the_mean_out_of_distribution(experiment: Experiment) -> None:
+    """No valid cluster is in train out of distribution, so both score the same."""
+    splitter = experiment._splitter("out", 0)
+    assert experiment._cluster_mean(splitter) == pytest.approx(experiment._mean(splitter))
 
 
 def test_baseline_is_repeatable(untuned: Experiment) -> None:
