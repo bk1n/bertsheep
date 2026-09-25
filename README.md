@@ -3,6 +3,8 @@ Bi-directional encoder representations from transformers (BERT) for binding affi
 
 Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on binding affinity of compounds to a single target and evaluates generalisation performance.
 
+Part of my work at Accenture Labs.
+
 We are interested in the most profiled kinase target in [bindingDB](https://www.bindingdb.org/): EGFR.
 
 ## Question 1

@@ -5,7 +5,7 @@ import optuna
 import pytest
 
 import bertsheep.tuning as bt
-from bertsheep.experiment import ARMS, METHOD, Experiment
+from bertsheep.experiment import METHOD, TUNED_ARMS, Experiment
 from bertsheep.model import Model
 from bertsheep.tuning import SEARCH_SPACES, Tuner, best_params_path, study_name
 
@@ -32,7 +32,7 @@ def _record(arm: str, distribution: str = "in") -> dict:
 
 def test_every_arm_has_a_space_and_a_budget() -> None:
     """The experiment's arms, the search spaces and the trial budgets agree."""
-    assert set(SEARCH_SPACES) == set(ARMS) == set(bt.N_TRIALS)
+    assert set(SEARCH_SPACES) == set(TUNED_ARMS) == set(bt.N_TRIALS)
 
 
 def test_fine_tuning_methods_are_left_at_plain_defaults() -> None:
@@ -47,7 +47,7 @@ def test_fine_tuning_methods_are_left_at_plain_defaults() -> None:
     assert defaults["reinit_n"].default == 0
 
 
-@pytest.mark.parametrize("arm", ARMS)
+@pytest.mark.parametrize("arm", TUNED_ARMS)
 def test_search_space_draws_within_bounds(experiment: Experiment, arm: str) -> None:
     """
     A trial draws every parameter in its arm's space, inside the bounds, and
@@ -87,7 +87,7 @@ def test_tune_keys_each_arm_separately(
     narrowing the arms narrows the tuning and the arms never overwrite each
     other. The transformer fits are stubbed with a score read off the LR.
     """
-    monkeypatch.setattr(bt, "N_TRIALS", dict.fromkeys(ARMS, 2))
+    monkeypatch.setattr(bt, "N_TRIALS", dict.fromkeys(TUNED_ARMS, 2))
     monkeypatch.setattr(Tuner, "_transformer_loss",
                         lambda self, trial, params: params["lr"])
 
@@ -97,7 +97,7 @@ def test_tune_keys_each_arm_separately(
     ]
 
     experiment.tune(distributions=["in"])
-    for arm in ARMS:
+    for arm in TUNED_ARMS:
         record = _record(arm)
         assert record["study"] == study_name("TEST", arm, METHOD, "in")
         assert record["params"].keys() == SEARCH_SPACES[arm].keys()

@@ -6,6 +6,7 @@ from itertools import product
 from pathlib import Path
 
 import pandas as pd
+from sklearn.dummy import DummyRegressor
 from sklearn.metrics import r2_score, root_mean_squared_error
 
 from bertsheep.baseline import fit_baseline
@@ -21,7 +22,11 @@ KEY = ["arm", "distribution", "seed"]  # one results row per combination
 
 # Butina only; Bemis-Murcko scaffold splits are not part of the matrix.
 METHOD = "butina"
-ARMS = ("baseline", "pretrained", "finetuned")
+# "mean" predicts the train mean: the floor every model has to clear. R2 = 0
+# is not that floor, since it scores against the valid set's own mean, which
+# no model could know -- least of all out of distribution.
+ARMS = ("mean", "baseline", "pretrained", "finetuned")
+UNTUNED = {"mean"}  # arms with no hyperparameters to search
 N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
 # The search runs once, on the first replicate's split; every seed reuses it.
 TUNING_SEED = 0
@@ -121,7 +126,7 @@ class Experiment:
         distributions : Iterable[str]
             Distributions to tune for.
         """
-        arms = list(arms)
+        arms = [arm for arm in arms if arm not in UNTUNED]
         for distribution in distributions:
             splitter = self._splitter(distribution, TUNING_SEED)
             for arm in arms:
@@ -148,6 +153,31 @@ class Experiment:
         """
         path = best_params_path(study_name(self.target, arm, METHOD, distribution))
         return json.loads(path.read_text())["params"]
+
+    def _mean(self, splitter: Splitters) -> dict[str, float | str | None]:
+        """
+        Predict the train mean for every valid molecule: what a model scores
+        from the label distribution alone, with no chemistry.
+
+        Parameters
+        ----------
+        splitter : Splitters
+            Split to fit and score on.
+
+        Returns
+        -------
+        dict[str, float | str | None]
+            Valid RMSE and R2, and no epoch or run directory.
+        """
+        train, _, valid = splitter.split()
+        X, y = self.fingerprints, self.df["labels"].to_numpy()
+        preds = DummyRegressor().fit(X[train], y[train]).predict(X[valid])
+        return {
+            "valid_rmse": root_mean_squared_error(y[valid], preds),
+            "valid_r2": r2_score(y[valid], preds),
+            "best_epoch": None,
+            "run_dir": None,
+        }
 
     def _baseline(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
@@ -231,7 +261,9 @@ class Experiment:
             valid scores and the wall time.
         """
         start = time.time()
-        if arm == "baseline":
+        if arm == "mean":
+            result = self._mean(splitter)
+        elif arm == "baseline":
             result = self._baseline(splitter)
         else:
             result = self._transformer(splitter, arm)

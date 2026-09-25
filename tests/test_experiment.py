@@ -58,6 +58,7 @@ def test_arms_are_scored_on_the_same_split(
         seen.append(splitter.split())
         return _fake_transformer(splitter, "finetuned")
 
+    monkeypatch.setattr(experiment, "_mean", record)
     monkeypatch.setattr(experiment, "_baseline", record)
     monkeypatch.setattr(experiment, "_transformer", record)
     experiment.grid(distributions=["out"], seeds=[0])
