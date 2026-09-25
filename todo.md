@@ -49,6 +49,11 @@ not do yet, at the level of "what needs building", not how.
 
 - [ ] Results aggregation into one tidy frame, then the four-panel figure (in/out-of-distribution R2 boxplots + fine-tuned R2 curves per epoch)
 
+## Question 2 — latent space during fine-tuning
+
+- [x] `Results.q2()`: aligned-UMAP GIF (distribution x embedding/middle/last layer, plus a loss column with a moving cursor) and a static filmstrip of its key frames, each coloured by affinity and by Butina cluster, over a seeded fifth of each split (`SUBSAMPLE`). Coordinates cache to `out/latent/<run>.npy`
+- [ ] RSA line graphs, (a) per embedding/encoder layer and (b) per attention layer, in vs out of distribution. Attention maps are recomputed from `init.pt`/`best.pt` with `output_attentions=True`; the GIF leaves attention to this figure
+
 ## Question 2.1 — fine-tuning methods
 
 - [ ] Compare LLRD and top-layer reinit. Both are out of the Question 1 search and default off in `Model` (`llrd_decay=1.0`, `reinit_n=0`), so the fine-tuned arm is plain AdamW. The ranges the search used before they came out: `llrd_decay` 0.7–1.0, `reinit_n` 0–1. `reinit_n` is close to binary because ChemBERTa-10M-MTR has three encoder layers. The few-sample reinit trick discards the quarter of the encoder nearest the head (Zhang et al. 2021, 6 of BERT-large's 24 layers), and a third is already past that. Reinitialising all three would throw pretraining away rather than being a fine-tuning setting

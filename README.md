@@ -79,11 +79,17 @@ Multi-panel:\
 (a) line-graph: x: embedding layer, y: RSA, color: in vs out-of-distribution\
 (b) line-graph: x: attention layer, y: RSA, color: in vs out-of-distribution
 
-Multi-panel GIF (2x3):\
-x: first layer, middle layer, bottom layer\
+Multi-panel GIF (2x4), one per colouring (affinity, Butina cluster):\
+x: embedding layer, middle encoder layer, last encoder layer, loss curve\
 y: in-distribution, out-of-distribution
 
 > GIF creation:
-> 1. Capture each (a) embedding layer and (b) attention layer at each fine-tuning epoch.
-> 2. Visualise each w/ aligned UMAP.
-> 3. Convert to GIF.
+> 1. Embed a fifth of each split's molecules with each fine-tuning epoch's checkpoint, from the pretrained weights on, for the `GIF_SEED` runs. Aligned UMAP's cost grows with molecules x epochs, and the full ~8.8k would take ~1.5 h per panel.
+> 2. Align each layer's epochs w/ aligned UMAP, so a molecule moves only as far as fine-tuning moved it.
+> 3. Interpolate between epochs and convert to GIF; the loss column's cursor shows where training is.
+>
+> Validation molecules are drawn large over the faint train and test molecules. Attention maps are not drawn: each is a variable-size matrix per molecule, and each encoder layer's hidden state is already its attention block's output.
+
+Filmstrip (6x5), the GIF's key frames for print:\
+x: pretrained, 25%, 50%, selected epoch, last epoch\
+y: distribution x layer
