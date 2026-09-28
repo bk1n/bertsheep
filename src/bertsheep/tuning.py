@@ -127,13 +127,13 @@ def best_params_path(study: str) -> Path:
 class Tuner:
     """
     Search one arm's hyperparameters for one target and one split with
-    Optuna's TPE sampler, scoring trials on test and never reading valid.
+    Optuna's TPE sampler, scoring trials on valid and never reading test.
 
     The study's product is a set of *parameters*, not a trained model: the
     experiment matrix refits with them across its replicate seeds, and those
-    fits are what report on valid. Keeping the search out of that path means
+    fits are what report on test. Keeping the search out of that path means
     re-running the matrix does not re-run the search, and it keeps the held-out
-    split genuinely held out -- test is already doing double duty here, picking
+    split genuinely held out -- valid is already doing double duty here, picking
     the epoch (or boosting round) within a trial and the trial within the
     study. Each arm gets its own study, so each is compared at its own best
     rather than at settings tuned for another.
@@ -208,7 +208,7 @@ class Tuner:
 
     def _baseline_loss(self, params: dict[str, float | int]) -> float:
         """
-        Fit XGBoost with one hyperparameter set and score it on test. XGBoost
+        Fit XGBoost with one hyperparameter set and score it on valid. XGBoost
         reports no per-epoch losses to Optuna, so these trials are never
         pruned; at seconds apiece there is little to save.
 
@@ -220,19 +220,19 @@ class Tuner:
         Returns
         -------
         float
-            Test MSE at the boosting round early stopping selected, in the
-            same units as the transformer arms' test loss.
+            Valid MSE at the boosting round early stopping selected, in the
+            same units as the transformer arms' valid loss.
         """
-        train, test, _ = self.splitter.split()
+        train, valid, _ = self.splitter.split()
         labels = self.df["labels"].to_numpy()
-        model = fit_baseline(self.fingerprints, labels, train, test, self.seed, params)
-        return mean_squared_error(labels[test], model.predict(self.fingerprints[test]))
+        model = fit_baseline(self.fingerprints, labels, train, valid, self.seed, params)
+        return mean_squared_error(labels[valid], model.predict(self.fingerprints[valid]))
 
     def _transformer_loss(self, trial: optuna.Trial,
                           params: dict[str, float | int]) -> float:
         """
         Fit ChemBERTa, frozen or fine-tuned as the arm says, with one
-        hyperparameter set and score it on test, stopping part way if the
+        hyperparameter set and score it on valid, stopping part way if the
         trial trails the ones before it.
 
         Checkpointing is off: a search of this size would write hundreds of
@@ -250,22 +250,22 @@ class Tuner:
         Returns
         -------
         float
-            Lowest test loss the fit reached, which is the epoch that fit()
+            Lowest valid loss the fit reached, which is the epoch that fit()
             would have selected.
         """
-        def report(epoch: int, test_loss: float) -> None:
+        def report(epoch: int, valid_loss: float) -> None:
             """
-            Pass the epoch's test loss to Optuna and stop the fit if the trial
+            Pass the epoch's valid loss to Optuna and stop the fit if the trial
             is already trailing the ones before it.
 
             Parameters
             ----------
             epoch : int
                 Epoch just finished.
-            test_loss : float
-                That epoch's test loss.
+            valid_loss : float
+                That epoch's valid loss.
             """
-            trial.report(test_loss, epoch)
+            trial.report(valid_loss, epoch)
             if trial.should_prune():
                 raise optuna.TrialPruned
 
@@ -273,7 +273,7 @@ class Tuner:
             self.df, self.target, self.splitter, seed=self.seed,
             checkpoint=False, freeze=self.arm == "pretrained", **params,
         )
-        return model.fit(callback=report)["test_loss"].min()
+        return model.fit(callback=report)["valid_loss"].min()
 
     def _objective(self, trial: optuna.Trial) -> float:
         """
@@ -287,7 +287,7 @@ class Tuner:
         Returns
         -------
         float
-            Test MSE of the fit.
+            Valid MSE of the fit.
         """
         params = self._search_space(trial)
         if self.arm == "baseline":
@@ -312,7 +312,7 @@ class Tuner:
         }
         path = best_params_path(self.study_name)
         path.write_text(json.dumps(record, indent=2))
-        print(f"-- Best test loss {study.best_value:.4f} -- written to {path}")
+        print(f"-- Best valid loss {study.best_value:.4f} -- written to {path}")
 
     def optimise(self) -> dict[str, float | int]:
         """

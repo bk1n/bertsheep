@@ -6,14 +6,14 @@ from sklearn.model_selection import GroupShuffleSplit, StratifiedKFold
 from bertsheep.chemistry import Chemist
 
 SPLIT_SEED = 444
-TRAIN_SPLIT, TEST_SPLIT = 0.7, 0.15  # valid takes the remainder
+TRAIN_SPLIT, VALID_SPLIT = 0.7, 0.15  # test takes the remainder
 SPLIT_METHODS = ("scaffold", "butina")
 DISTRIBUTIONS = ("in", "out")
 
 
 class Splitters:
     """
-    Build train/test/valid splits that place the held-out sets a chosen
+    Build train/valid/test splits that place the held-out sets a chosen
     structural distance from the training set -- interleaved with it, or as far
     from it as the chemistry allows.
 
@@ -40,8 +40,8 @@ class Splitters:
         of it.
     train_size : float
         Fraction of molecules in train.
-    test_size : float
-        Fraction of molecules in test; valid takes the remainder.
+    valid_size : float
+        Fraction of molecules in valid; test takes the remainder.
     seed : int
         Seed for the shuffle, so a replicate is a new seed rather than a new
         code path.
@@ -64,7 +64,7 @@ class Splitters:
         method: str = "scaffold",
         distribution: str = "in",
         train_size: float = TRAIN_SPLIT,
-        test_size: float = TEST_SPLIT,
+        valid_size: float = VALID_SPLIT,
         seed: int = SPLIT_SEED,
         min_cluster_size: int = 1,
         distances: np.ndarray | None = None,
@@ -75,11 +75,11 @@ class Splitters:
             raise ValueError(
                 f"unknown distribution {distribution!r}; choose from {DISTRIBUTIONS}"
             )
-        if not 0 < train_size + test_size < 1:
-            raise ValueError("train_size + test_size must leave a validation set")
+        if not 0 < train_size + valid_size < 1:
+            raise ValueError("train_size + valid_size must leave a test set")
         self.method = method
         self.distribution = distribution
-        self.train_size, self.test_size = train_size, test_size
+        self.train_size, self.valid_size = train_size, valid_size
         self.seed = seed
         self.min_cluster_size = min_cluster_size
 
@@ -107,27 +107,27 @@ class Splitters:
         """
         Turn the configured two-way split into a three-way one by running it
         twice: once to cut train off the whole set, then again on what is left
-        to cut test from valid. Splitting the remainder rather than dealing
+        to cut valid from test. Splitting the remainder rather than dealing
         three ways at once means the valid/test boundary is drawn by the same
-        rule as the train/test one, so the held-out valid split is no easier
-        than the test set selection runs on.
+        rule as the train/valid one, so the held-out test split is no easier
+        than the valid set selection runs on.
 
         Returns
         -------
         tuple[np.ndarray, np.ndarray, np.ndarray]
-            Positional train, test and valid indices into the SMILES. Molecules
+            Positional train, valid and test indices into the SMILES. Molecules
             dropped by `min_cluster_size` appear in none of them.
         """
         train, rest = self._cluster_split(self.rows, self.train_size)
-        # The second cut is of the remainder, so test's share has to be
+        # The second cut is of the remainder, so valid's share has to be
         # rescaled out of it -- 15% of everything is half of the 30% left.
-        test, valid = self._cluster_split(rest, self.test_size / (1 - self.train_size))
+        valid, test = self._cluster_split(rest, self.valid_size / (1 - self.train_size))
         sizes = " / ".join(
             f"{len(split)} {name}"
             for name, split in (("train", train), ("valid", valid), ("test", test))
         )
         print(f"-- Split ({self.method}, {self.distribution}-distribution): {sizes}")
-        return train, test, valid
+        return train, valid, test
 
     def _cluster_split(self, rows: np.ndarray,
                        train_size: float) -> tuple[np.ndarray, np.ndarray]:

@@ -1,7 +1,7 @@
 import numpy as np
 from xgboost import XGBRegressor
 
-# The settings the search leaves alone. Early stopping on test picks the number
+# The settings the search leaves alone. Early stopping on valid picks the number
 # of trees, so n_estimators is only a ceiling: set high enough that early
 # stopping, not the cap, ends a fit at the lowest learning rate searched.
 XGB_PARAMS = {
@@ -11,13 +11,13 @@ XGB_PARAMS = {
 
 
 def fit_baseline(fingerprints: np.ndarray, labels: np.ndarray, train: np.ndarray,
-                 test: np.ndarray, seed: int,
+                 valid: np.ndarray, seed: int,
                  params: dict[str, float | int]) -> XGBRegressor:
     """
     Fit XGBoost on ECFP4 bits: what a model with no language pretraining gets
-    from the same split. Early stopping watches test, as the transformer arms'
+    from the same split. Early stopping watches valid, as the transformer arms'
     epoch selection does, so the search and the matrix fit the baseline the
-    same way and valid is never read here.
+    same way and test is never read here.
 
     Parameters
     ----------
@@ -27,7 +27,7 @@ def fit_baseline(fingerprints: np.ndarray, labels: np.ndarray, train: np.ndarray
         Labels over the whole frame, in the same order.
     train : np.ndarray
         Positional indices to fit on.
-    test : np.ndarray
+    valid : np.ndarray
         Positional indices early stopping watches.
     seed : int
         Seed for XGBoost's row and column subsampling.
@@ -42,5 +42,5 @@ def fit_baseline(fingerprints: np.ndarray, labels: np.ndarray, train: np.ndarray
     """
     model = XGBRegressor(**XGB_PARAMS, **params, random_state=seed)
     model.fit(fingerprints[train], labels[train],
-              eval_set=[(fingerprints[test], labels[test])], verbose=False)
+              eval_set=[(fingerprints[valid], labels[valid])], verbose=False)
     return model

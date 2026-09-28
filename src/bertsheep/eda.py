@@ -49,14 +49,14 @@ SPLIT_REPLICATES = 3
 # MIN_CLUSTER_SIZE leaves out of every split, not a fourth split, so it takes
 # the grey and the three real splits take hues.
 #
-# Orange rather than green for valid: red and green are the pair deuteranopia
+# Orange rather than green for test: red and green are the pair deuteranopia
 # collapses, and tab:red against tab:green separates by an OKLab dE of only
-# 3.9 against a floor of 8 -- train and valid would read as one colour for
+# 3.9 against a floor of 8 -- train and test would read as one colour for
 # most colourblind readers. Darkening the green does not fix it (3.7), nor do
 # teal or purple. This set holds dE >= 11.8 across protan-, deuter- and
 # tritanopia.
 DROPPED = "dropped"
-SPLIT_COLOURS = {"train": "tab:red", "test": "tab:blue", "valid": "tab:orange",
+SPLIT_COLOURS = {"train": "tab:red", "valid": "tab:blue", "test": "tab:orange",
                  DROPPED: GREY}
 SPLIT_FIGSIZE = (15, 9)
 OTHER = "other"
@@ -386,10 +386,9 @@ class Eda():
                     self.ligands["smiles"], method, distribution, seed=seed,
                     min_cluster_size=MIN_CLUSTER_SIZE, distances=distances,
                 )
-                # split() deals train, test, valid in that order; zipping
-                # against SPLIT_COLOURS instead would swap the two held-out sets.
+                # split() deals train, valid, test in that order.
                 assigned = pd.Series(DROPPED, index=self.embedding.index)
-                for split, index in zip(("train", "test", "valid"), splitter.split()):
+                for split, index in zip(("train", "valid", "test"), splitter.split()):
                     assigned.iloc[index] = split
                 # Drawn in a random order, not split by split: a set drawn last
                 # covers the others wherever they overlap, and an in-distribution

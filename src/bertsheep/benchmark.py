@@ -104,8 +104,8 @@ class Benchmark:
         sizes = pd.Series(splitter.clusters[splitter.rows]).value_counts()
         return {
             "train": len(model.train_df) / splitter.n,
-            "test": len(model.test_df) / splitter.n,
             "valid": len(model.valid_df) / splitter.n,
+            "test": len(model.test_df) / splitter.n,
             "clusters": len(sizes),
             "singletons": sizes.eq(1).sum() / splitter.n,
         }
@@ -113,7 +113,7 @@ class Benchmark:
     def _time_training(self, model: Model) -> dict[str, float]:
         """
         Seconds per epoch and peak GPU memory for one Model, projected out to a
-        full run at the Model's own epoch ceiling, plus the train and test
+        full run at the Model's own epoch ceiling, plus the train and valid
         losses after the last timed epoch. The first epoch is discarded from
         the timing because it pays for CUDA context setup and the first
         allocation of every buffer, which the epochs after it do not.
@@ -135,7 +135,7 @@ class Benchmark:
         dict[str, float]
             Mean seconds per epoch, peak allocated VRAM in GiB (NaN on CPU),
             the projected minutes for a full fit, and the final epoch's train
-            loss, test loss and test RMSE.
+            loss, valid loss and valid RMSE.
         """
         cuda = model.device.type == "cuda"
         if cuda:
@@ -145,7 +145,7 @@ class Benchmark:
         for epoch in range(self.epochs):
             start = time.time()
             train_loss = model._train_epoch(epoch)
-            test_loss, preds, labels = model._score(model.test_loader)
+            valid_loss, preds, labels = model._score(model.valid_loader)
             times.append(time.time() - start)
 
         seconds = np.mean(times[1:])
@@ -154,8 +154,8 @@ class Benchmark:
             "peak_vram_gb": torch.cuda.max_memory_allocated() / 1024**3 if cuda else np.nan,
             "projected_fit_minutes": seconds * model.num_epochs / 60,
             "train_loss": train_loss,
-            "test_loss": test_loss,
-            "test_rmse": model._metrics(preds, labels)["rmse"],
+            "valid_loss": valid_loss,
+            "valid_rmse": model._metrics(preds, labels)["rmse"],
         }
 
     def _arm(self, splitter: Splitters, autocast: bool) -> dict[str, float]:
@@ -242,7 +242,7 @@ class Benchmark:
     def autocast(self) -> pd.DataFrame:
         """
         The same fit in fp32 and under bf16 autocast, so the speed and memory
-        saved can be read next to any change in train loss, test loss and test
+        saved can be read next to any change in train loss, valid loss and valid
         RMSE. On CPU autocast is a no-op, so the two rows differ only by timing
         noise.
 
