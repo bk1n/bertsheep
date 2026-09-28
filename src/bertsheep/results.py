@@ -35,6 +35,7 @@ from bertsheep.model import (
     HISTORY,
     INIT_CHECKPOINT,
     SPLIT_NAMES,
+    SPLITS,
     embeddings,
     split_frames,
 )
@@ -58,11 +59,11 @@ ARM_COLOURS = {"cluster_mean": "lightgrey", "baseline": "grey",
 # The baseline is XGBoost on Morgan fingerprints; the last two are ChemBERTa.
 ARM_LABELS = {"cluster_mean": "Cluster mean", "baseline": "XGBoost + FPS",
               "pretrained": "Pretrained", "finetuned": "Fine-tuned"}
-# Arms scored once on valid rather than per epoch, drawn as horizontal lines.
+# Arms scored once on test rather than per epoch, drawn as horizontal lines.
 REFERENCE_ARMS = ("cluster_mean", "baseline")
-SPLIT_LABELS = {"train": "train", "test": "test", "valid": "validation"}
-# Dotted for valid, so the references -- also valid scores -- take dash-dot.
-SPLIT_STYLES = {"train": "--", "test": "-", "valid": ":"}
+SPLIT_LABELS = {"train": "train", "valid": "validation", "test": "test"}
+# Dotted for test, so the references -- also test scores -- take dash-dot.
+SPLIT_STYLES = {"train": "--", "valid": "-", "test": ":"}
 # Every score is RMSE, in the label's own units (see eda.LABEL_AXIS), so the
 # boxes and curves read on one scale. The model trains on MSE; history.csv's
 # losses are split-wide MSE, so their square root is that split's RMSE.
@@ -75,6 +76,17 @@ Q1_FIGSIZE = (12, 8)
 # Boxes need less room than curves over tens of epochs, but enough that four
 # arm names fit under them.
 Q1_WIDTH_RATIOS = (2, 3)
+# Each seed's test RMSE is drawn over its box, coloured by how close that
+# seed's test set sits to its train set. Single-hue so it reads as magnitude,
+# and neither blue, orange nor plasma, which already mean an arm or affinity.
+SIMILARITY_CMAP = "Purples"
+SIMILARITY_AXIS = "Median test-to-train nearest-neighbour Tanimoto"
+# Boxes faded so the seed points on them carry the colour.
+BOX_ALPHA = 0.4
+SEED_POINT_SIZE = 20
+# Horizontal spread of a box's points, in box widths either side of centre.
+JITTER = 0.15
+JITTER_SEED = 0
 
 # Aligned UMAP coordinates per GIF run. Cached because embedding every
 # checkpoint and aligning the epochs takes minutes, and restyling a figure
@@ -88,7 +100,7 @@ LAYER_LABELS = {0: "Embedding layer", 1: "Encoder layer 1",
                 2: "Encoder layer 2", 3: "Encoder layer 3"}
 # Share of each split's molecules embedded and aligned. Aligned UMAP's cost
 # grows with molecules x epochs, ~1.5 h a panel at the full ~8.8k; taken per
-# split so the train/test/valid proportions are the run's own.
+# split so the train/valid/test proportions are the run's own.
 SUBSAMPLE = 0.2
 SUBSAMPLE_SEED = 0
 # Transformer embeddings differ more in direction than in length.
@@ -102,11 +114,11 @@ GIF_FPS = 10
 GIF_DPI = 100  # the GIF is embedded in README.md, so kept to a few MB
 GIF_FIGSIZE = (17, 8)
 GIF_WIDTH_RATIOS = (1, 1, 1, 1.2)
-# Valid molecules were never trained on, so they are drawn larger and opaque
-# over the faint train and test molecules: generalisation reads as the held-out
+# Test molecules were never trained on, so they are drawn larger and opaque
+# over the faint train and valid molecules: generalisation reads as the held-out
 # points landing among training points of their colour.
-VALID_POINT_SIZE = 10
-VALID_ALPHA = 0.8
+TEST_POINT_SIZE = 10
+TEST_ALPHA = 0.8
 # Filmstrip columns besides the best and last epochs, as shares of the run.
 FILMSTRIP_FRACTIONS = (0, 0.25, 0.5)
 FILMSTRIP_FIGSIZE = (14, 16)
@@ -136,7 +148,7 @@ class Trajectory(NamedTuple):
     history : pd.DataFrame
         The run's history.csv, one row per epoch from -1.
     best_epoch : int
-        The epoch the run selected on test loss.
+        The epoch the run selected on valid loss.
     """
 
     distribution: str
@@ -164,7 +176,7 @@ class Results:
 
     def _histories(self) -> pd.DataFrame:
         """
-        Every transformer run's per-epoch train, test and valid RMSE, one row
+        Every transformer run's per-epoch train, valid and test RMSE, one row
         per (run, epoch, split). Driven off the results file's run_dir rather than a
         glob of out/models/, which also holds tuning-trial and legacy runs; the
         baseline has no run_dir and no epochs, so it drops out here.
@@ -173,7 +185,7 @@ class Results:
         -------
         pd.DataFrame
             Columns arm, distribution, seed, epoch, split and rmse. Epoch -1 has
-            test and valid scores only, since nothing was trained before it.
+            valid and test scores only, since nothing was trained before it.
         """
         runs = self.df.dropna(subset="run_dir")
         histories = pd.concat(
@@ -183,7 +195,7 @@ class Results:
         )
         return histories.melt(
             id_vars=["arm", "distribution", "seed", "epoch"],
-            value_vars=["train_loss", "test_loss", "valid_loss"], var_name="split",
+            value_vars=["train_loss", "valid_loss", "test_loss"], var_name="split",
             value_name="rmse",
         ).dropna().assign(split=lambda d: d["split"].str.removesuffix("_loss"),
                           rmse=lambda d: np.sqrt(d["rmse"]))
@@ -209,11 +221,11 @@ class Results:
     def _loss_panel(self, ax: plt.Axes, histories: pd.DataFrame,
                     distribution: str) -> None:
         """
-        Train, test and valid RMSE per epoch for the two transformer arms on one
+        Train, valid and test RMSE per epoch for the two transformer arms on one
         distribution: every seed's value as a point, with a LOESS trend per arm
         and split. The reference arms have no epochs -- the baseline counts
         boosting rounds, the cluster mean fits nothing -- so each is a
-        horizontal line at its mean valid RMSE rather than a curve.
+        horizontal line at its mean test RMSE rather than a curve.
 
         Parameters
         ----------
@@ -235,19 +247,25 @@ class Results:
         for arm in REFERENCE_ARMS:
             scores = self.df[(self.df["arm"] == arm)
                              & (self.df["distribution"] == distribution)]
-            ax.axhline(scores["valid_rmse"].mean(), color=ARM_COLOURS[arm],
-                       ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['valid']}")
+            ax.axhline(scores["test_rmse"].mean(), color=ARM_COLOURS[arm],
+                       ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['test']}")
         ax.set(title=f"{distribution}-distribution", xlabel="Epoch",
                ylabel=RMSE_AXIS)
         # Epochs are whole; left alone, the out panel's short range gets halves.
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    def _rmse_panel(self, ax: plt.Axes, distribution: str) -> None:
+    def _rmse_panel(self, ax: plt.Axes, distribution: str, norm: Normalize) -> None:
         """
-        Valid RMSE per arm over the seeds on one distribution, each box in its
-        arm's colour so it reads against the loss curves. Valid is the one
+        Test RMSE per arm over the seeds on one distribution, each box in its
+        arm's colour so it reads against the loss curves. Test is the one
         split no arm's model selection read, so it is the only fair ground for
         comparing them.
+
+        Every seed is also a point on its arm's box, coloured by its split's
+        similarity. A seed's split is shared by every arm, so one colour
+        recurring high or low in every box shows that the split, not the model,
+        set the score. The points include the outliers, so the boxes draw no
+        fliers of their own.
 
         Parameters
         ----------
@@ -255,23 +273,35 @@ class Results:
             Axes to draw on.
         distribution : str
             One of DISTRIBUTIONS.
+        norm : Normalize
+            Similarity colour scale, shared by both distributions.
         """
         arms = list(ARM_COLOURS)
         scores = self.df[self.df["distribution"] == distribution]
+        groups = [scores[scores["arm"] == arm] for arm in arms]
         boxes = ax.boxplot(
-            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in arms],
-            tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True, medianprops={"color": "black"},
+            [group["test_rmse"] for group in groups],
+            tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True,
+            showfliers=False, medianprops={"color": "black"},
         )
         for box, arm in zip(boxes["boxes"], arms):
-            box.set_facecolor(ARM_COLOURS[arm])
-        ax.set(title=f"{distribution}-distribution", ylabel=f"Validation {RMSE_AXIS}")
+            box.set(facecolor=ARM_COLOURS[arm], alpha=BOX_ALPHA)
+        rng = np.random.default_rng(JITTER_SEED)
+        similarity = self.similarity.loc[distribution]
+        for position, group in enumerate(groups, start=1):
+            ax.scatter(position + rng.uniform(-JITTER, JITTER, len(group)),
+                       group["test_rmse"], c=group["seed"].map(similarity),
+                       cmap=SIMILARITY_CMAP, norm=norm, s=SEED_POINT_SIZE,
+                       edgecolors="black", linewidths=0.5, zorder=3)
+        ax.set(title=f"{distribution}-distribution", ylabel=f"Test {RMSE_AXIS}")
 
     def q1(self) -> Path:
         """
-        README's Question 1 figure: one row per distribution, valid RMSE boxes
+        README's Question 1 figure: one row per distribution, test RMSE boxes
         on the left and RMSE curves on the right. Each column shares its y axis, so
         the in/out gap -- how much of an arm's score depends on having seen the
-        scaffold series -- reads straight down it.
+        scaffold series -- reads straight down it. The boxes' seed points share
+        one similarity colour bar.
 
         Returns
         -------
@@ -279,45 +309,109 @@ class Results:
             The saved figure.
         """
         histories = self._surviving()
+        # One scale over both distributions, so out's lower similarity shows.
+        norm = Normalize(self.similarity.min(), self.similarity.max())
         fig, axes = plt.subplots(len(DISTRIBUTIONS), 2, figsize=Q1_FIGSIZE,
                                  sharey="col", width_ratios=Q1_WIDTH_RATIOS,
                                  layout="constrained")
         for (box_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
-            self._rmse_panel(box_ax, distribution)
+            self._rmse_panel(box_ax, distribution, norm)
             self._loss_panel(curve_ax, histories, distribution)
         axes[0, 1].legend()
+        # Under the boxes rather than beside them, where it would take the
+        # width the arm names need.
+        fig.colorbar(ScalarMappable(norm, SIMILARITY_CMAP), ax=axes[:, 0],
+                     location="bottom", label=SIMILARITY_AXIS)
         FIGURE_DIR.mkdir(exist_ok=True)
         path = FIGURE_DIR / f"{self.name}_q1.png"
         fig.savefig(path, dpi=DPI, bbox_inches="tight")
         plt.close(fig)
         return path
 
-    def _frame(self, config: dict) -> pd.DataFrame:
+    @cached_property
+    def config(self) -> dict:
         """
-        The preprocessed frame the GIF runs were split over, rebuilt from the
-        data path, target and mutation their config.json records, with each
-        molecule's Butina cluster. The clusters come from the same cached
-        distance matrix Experiment splits with, so they are the groups the
-        out-of-distribution split held out.
+        The first transformer run's config.json. Every run in a results file
+        was split over the same frame, so any one of them records the data
+        path, target and mutation that rebuild it.
 
-        Parameters
-        ----------
-        config : dict
-            A GIF run's config.json.
+        Returns
+        -------
+        dict
+            The run's config.
+        """
+        run_dir = Path(self.df["run_dir"].dropna().iloc[0])
+        return json.loads((run_dir / CONFIG).read_text())
+
+    @cached_property
+    def frame(self) -> pd.DataFrame:
+        """
+        The preprocessed frame every run was split over, in the order the
+        splits' row positions index.
 
         Returns
         -------
         pd.DataFrame
-            Data._preprocess()'s frame plus a `cluster` column; 0 is the largest.
+            Data._preprocess()'s frame.
         """
-        frame = Data(config["data_path"], config["target"],
-                     config["mutation"])._preprocess()
+        return Data(self.config["data_path"], self.config["target"],
+                    self.config["mutation"])._preprocess()
+
+    @cached_property
+    def distances(self) -> np.ndarray:
+        """
+        Tanimoto distances over the frame: the same cached matrix Experiment
+        splits with, so reading it here costs a load rather than a rebuild.
+
+        Returns
+        -------
+        np.ndarray
+            (n, n) distance matrix in the frame's order.
+        """
         chemist = Chemist()
-        distances = chemist.cached_tanimoto(
-            chemist.fingerprints(frame["smiles"]), CACHE_DIR,
-            f"{config['target']}-{config['mutation'] or 'pooled'}",
+        return chemist.cached_tanimoto(
+            chemist.fingerprints(self.frame["smiles"]), CACHE_DIR,
+            f"{self.config['target']}-{self.config['mutation'] or 'pooled'}",
         )
-        return frame.assign(cluster=chemist.butina_clusters(distances))
+
+    @cached_property
+    def similarity(self) -> pd.Series:
+        """
+        How close each seed's test set sits to its train set: every test
+        molecule's Tanimoto similarity to its nearest train molecule, medianed
+        over test. Nearest neighbour rather than all pairs because what helps
+        a model is having seen one close analogue; the median over all pairs
+        sits at ~0.15 on ECFP4 whatever the split. Read from the pretrained runs'
+        saved splits, since every seed has one and each arm on a seed shares
+        its split.
+
+        Returns
+        -------
+        pd.Series
+            Median nearest-neighbour similarity, indexed by (distribution, seed).
+        """
+        runs = self.df[self.df["arm"] == "pretrained"].set_index(
+            ["distribution", "seed"])["run_dir"]
+
+        def median_nearest(run_dir: str) -> float:
+            splits = pd.read_parquet(Path(run_dir) / SPLITS).groupby("split")["row"]
+            train, test = splits.get_group("train"), splits.get_group("test")
+            return np.median(1 - self.distances[np.ix_(test, train)].min(axis=1))
+
+        return runs.map(median_nearest)
+
+    def _frame(self) -> pd.DataFrame:
+        """
+        The frame with each molecule's Butina cluster. The clusters come from
+        the same distance matrix Experiment splits with, so they are the
+        groups the out-of-distribution split held out.
+
+        Returns
+        -------
+        pd.DataFrame
+            The frame plus a `cluster` column; 0 is the largest.
+        """
+        return self.frame.assign(cluster=Chemist().butina_clusters(self.distances))
 
     def _coordinates(self, run_dir: Path, smiles: pd.Series,
                      epochs: np.ndarray) -> np.ndarray:
@@ -382,7 +476,7 @@ class Results:
         runs = self.df[(self.df["arm"] == "finetuned") & (self.df["seed"] == GIF_SEED)]
         runs = runs.set_index("distribution").loc[list(DISTRIBUTIONS)]
         run_dirs = [Path(run_dir) for run_dir in runs["run_dir"]]
-        frame = self._frame(json.loads((run_dirs[0] / CONFIG).read_text()))
+        frame = self._frame()
         trajectories = []
         for (distribution, run), run_dir in zip(runs.iterrows(), run_dirs):
             molecules = pd.concat(
@@ -477,28 +571,28 @@ class Results:
         Callable[[float], None]
             Moves the points to a (fractional) epoch.
         """
-        valid = (trajectory.molecules["split"] == "valid").to_numpy()
-        context = ax.scatter(*trajectory.coords[layer, 0, ~valid].T, s=POINT_SIZE,
-                             c=colours[~valid], alpha=POINT_ALPHA, linewidths=0)
-        held_out = ax.scatter(*trajectory.coords[layer, 0, valid].T,
-                              s=VALID_POINT_SIZE, c=colours[valid],
-                              alpha=VALID_ALPHA, linewidths=0)
+        test = (trajectory.molecules["split"] == "test").to_numpy()
+        context = ax.scatter(*trajectory.coords[layer, 0, ~test].T, s=POINT_SIZE,
+                             c=colours[~test], alpha=POINT_ALPHA, linewidths=0)
+        held_out = ax.scatter(*trajectory.coords[layer, 0, test].T,
+                              s=TEST_POINT_SIZE, c=colours[test],
+                              alpha=TEST_ALPHA, linewidths=0)
         ax.update_datalim(trajectory.coords[layer].reshape(-1, 2))
         ax.autoscale_view()
         ax.set(xticks=[], yticks=[])
 
         def move(epoch: float) -> None:
             coords = self._at(trajectory, layer, epoch)
-            context.set_offsets(coords[~valid])
-            held_out.set_offsets(coords[valid])
+            context.set_offsets(coords[~test])
+            held_out.set_offsets(coords[test])
 
         return move
 
     def _history_panel(self, ax: plt.Axes,
                        trajectory: Trajectory) -> Callable[[float], None]:
         """
-        The run's train, test and valid RMSE, styled as in q1(), with the
-        selected epoch starred on the test curve it was selected on. A cursor
+        The run's train, valid and test RMSE, styled as in q1(), with the
+        selected epoch starred on the valid curve it was selected on. A cursor
         tracks the frame's epoch, so each frame of the latent space can be read
         against where training was.
 
@@ -519,7 +613,7 @@ class Results:
             ax.plot(history["epoch"], np.sqrt(history[f"{split}_loss"]),
                     color=ARM_COLOURS["finetuned"], ls=SPLIT_STYLES[split],
                     label=label)
-        best = np.sqrt(history.set_index("epoch").loc[trajectory.best_epoch, "test_loss"])
+        best = np.sqrt(history.set_index("epoch").loc[trajectory.best_epoch, "valid_loss"])
         ax.plot(trajectory.best_epoch, best, "*", color="black", ms=10,
                 label="selected epoch")
         ax.set(xlabel="Epoch", ylabel=RMSE_AXIS)
@@ -582,7 +676,7 @@ class Results:
                          label=LABEL_AXIS, extend="both", shrink=0.8)
         fig.suptitle(f"ChemBERTa latent space over fine-tuning (seed {GIF_SEED}), "
                      f"coloured by {COLOURINGS[colour]}; large points are the "
-                     f"validation set")
+                     f"test set")
 
     def q2_gif(self, colour: str = "label") -> Path:
         """

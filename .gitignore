@@ -1,5 +1,5 @@
 data/
-out/
+/out
 __pycache__
 .env
 .claude/worktrees/

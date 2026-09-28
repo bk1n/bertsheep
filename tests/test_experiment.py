@@ -36,7 +36,7 @@ def _fake_transformer(splitter: Splitters, arm: str) -> dict:
     dict
         A result with the keys the real method returns.
     """
-    return {"valid_rmse": 1.0, "valid_r2": 0.0, "best_epoch": 0, "run_dir": None}
+    return {"test_rmse": 1.0, "test_r2": 0.0, "best_epoch": 0, "run_dir": None}
 
 
 @pytest.mark.parametrize("distribution", DISTRIBUTIONS)
@@ -51,7 +51,7 @@ def test_same_seed_gives_the_same_split(experiment: Experiment,
 def test_arms_are_scored_on_the_same_split(
     monkeypatch: pytest.MonkeyPatch, experiment: Experiment
 ) -> None:
-    """Every arm of a (distribution, seed) sees identical train/test/valid rows."""
+    """Every arm of a (distribution, seed) sees identical train/valid/test rows."""
     seen = []
 
     def record(splitter: Splitters, *args, **kwargs) -> dict:
@@ -69,7 +69,7 @@ def test_arms_are_scored_on_the_same_split(
 
 
 def test_cluster_mean_is_the_mean_out_of_distribution(experiment: Experiment) -> None:
-    """No valid cluster is in train out of distribution, so both score the same."""
+    """No test cluster is in train out of distribution, so both score the same."""
     splitter = experiment._splitter("out", 0)
     assert experiment._cluster_mean(splitter) == pytest.approx(experiment._mean(splitter))
 

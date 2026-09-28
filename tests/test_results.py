@@ -22,9 +22,9 @@ def results_path(tmp_path: Path) -> Path:
     rows = []
     for distribution in DISTRIBUTIONS:
         rows.append({"arm": "cluster_mean", "distribution": distribution, "seed": 0,
-                     "valid_rmse": 2.0, "valid_r2": 0.3, "run_dir": None})
+                     "test_rmse": 2.0, "test_r2": 0.3, "run_dir": None})
         rows.append({"arm": "baseline", "distribution": distribution, "seed": 0,
-                     "valid_rmse": 1.5, "valid_r2": 0.6, "run_dir": None})
+                     "test_rmse": 1.5, "test_r2": 0.6, "run_dir": None})
         for arm in ("pretrained", "finetuned"):
             run_dir = tmp_path / f"{arm}-{distribution}"
             run_dir.mkdir()
@@ -32,11 +32,11 @@ def results_path(tmp_path: Path) -> Path:
             pd.DataFrame({
                 "epoch": epochs,
                 "train_loss": np.r_[np.nan, rng.uniform(1, 5, EPOCHS)],
-                "test_loss": rng.uniform(1, 5, EPOCHS + 1),
                 "valid_loss": rng.uniform(1, 5, EPOCHS + 1),
+                "test_loss": rng.uniform(1, 5, EPOCHS + 1),
             }).to_csv(run_dir / "history.csv", index=False)
             rows.append({"arm": arm, "distribution": distribution, "seed": 0,
-                         "valid_rmse": 1.0, "valid_r2": 0.7, "run_dir": str(run_dir)})
+                         "test_rmse": 1.0, "test_r2": 0.7, "run_dir": str(run_dir)})
     path = tmp_path / "EGFR-wildtype.csv"
     pd.DataFrame(rows).to_csv(path, index=False)
     return path
@@ -47,9 +47,9 @@ def test_histories_are_long_and_complete(results_path: Path) -> None:
     assert list(histories.columns) == ["arm", "distribution", "seed", "epoch",
                                        "split", "rmse"]
     assert not histories["rmse"].isna().any()
-    assert set(histories["split"]) == {"train", "test", "valid"}
+    assert set(histories["split"]) == {"train", "valid", "test"}
     assert set(histories["arm"]) == {"pretrained", "finetuned"}
-    # 4 runs x (EPOCHS + 1 test and valid losses each + EPOCHS train losses)
+    # 4 runs x (EPOCHS + 1 valid and test losses each + EPOCHS train losses)
     assert len(histories) == 4 * (3 * EPOCHS + 2)
 
 
@@ -70,9 +70,29 @@ def test_surviving_drops_epochs_most_seeds_never_reached(
 def test_q1_writes_figure(results_path: Path, tmp_path: Path,
                           monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(br, "FIGURE_DIR", tmp_path / "figures")
-    path = Results(results_path).q1()
+    results = Results(results_path)
+    # Stands in for the cached property, which needs the dump and real splits.
+    results.similarity = pd.Series(
+        [0.7, 0.4], index=pd.MultiIndex.from_tuples([("in", 0), ("out", 0)]))
+    path = results.q1()
     assert path == tmp_path / "figures" / "EGFR-wildtype_q1.png"
     assert path.stat().st_size > 0
+
+
+def test_similarity_is_median_nearest_train_neighbour(results_path: Path,
+                                                      tmp_path: Path) -> None:
+    # Molecules 0-2 are train and 3-4 test. 3's nearest train molecule is 0.2
+    # away and 4's is 0.6 away, so the similarities are 0.8 and 0.4, median 0.6.
+    distances = np.ones((5, 5))
+    distances[3, [0, 1, 2]] = [0.5, 0.2, 0.9]
+    distances[4, [0, 1, 2]] = [0.6, 0.7, 0.8]
+    for distribution in DISTRIBUTIONS:
+        pd.DataFrame({"row": [0, 1, 2, 3, 4],
+                      "split": ["train"] * 3 + ["test"] * 2}).to_parquet(
+            tmp_path / f"pretrained-{distribution}" / br.SPLITS, index=False)
+    results = Results(results_path)
+    results.distances = distances  # stands in for the cached matrix
+    np.testing.assert_allclose(results.similarity.loc[("in", 0)], 0.6)
 
 
 @pytest.fixture
@@ -87,7 +107,7 @@ def trajectories(results_path: Path) -> list[br.Trajectory]:
     runs = df[df["arm"] == "finetuned"].set_index("distribution")
     n = 30
     molecules = pd.DataFrame({
-        "split": np.repeat(["train", "test", "valid"], n // 3),
+        "split": np.repeat(["train", "valid", "test"], n // 3),
         "labels": rng.normal(size=n),
         "cluster": rng.integers(0, 50, n),
     })

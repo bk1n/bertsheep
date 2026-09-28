@@ -23,12 +23,12 @@ KEY = ["arm", "distribution", "seed"]  # one results row per combination
 # Butina only; Bemis-Murcko scaffold splits are not part of the matrix.
 METHOD = "butina"
 # "mean" predicts the train mean: the floor every model has to clear. R2 = 0
-# is not that floor, since it scores against the valid set's own mean, which
+# is not that floor, since it scores against the test set's own mean, which
 # no model could know -- least of all out of distribution.
 # "cluster_mean" predicts each molecule's Butina cluster's train mean: what
-# knowing the series alone is worth. In distribution every valid cluster is in
+# knowing the series alone is worth. In distribution every test cluster is in
 # train, so it is the floor a model has to clear to have learnt chemistry
-# within a series; out of distribution no valid cluster is, so it falls back to
+# within a series; out of distribution no test cluster is, so it falls back to
 # the train mean everywhere and scores exactly as "mean" does.
 ARMS = ("mean", "cluster_mean", "baseline", "pretrained", "finetuned")
 UNTUNED = {"mean", "cluster_mean"}  # arms with no hyperparameters to search
@@ -163,7 +163,7 @@ class Experiment:
 
     def _mean(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
-        Predict the train mean for every valid molecule: what a model scores
+        Predict the train mean for every test molecule: what a model scores
         from the label distribution alone, with no chemistry.
 
         Parameters
@@ -174,21 +174,21 @@ class Experiment:
         Returns
         -------
         dict[str, float | str | None]
-            Valid RMSE and R2, and no epoch or run directory.
+            Test RMSE and R2, and no epoch or run directory.
         """
-        train, _, valid = splitter.split()
+        train, _, test = splitter.split()
         X, y = self.fingerprints, self.df["labels"].to_numpy()
-        preds = DummyRegressor().fit(X[train], y[train]).predict(X[valid])
+        preds = DummyRegressor().fit(X[train], y[train]).predict(X[test])
         return {
-            "valid_rmse": root_mean_squared_error(y[valid], preds),
-            "valid_r2": r2_score(y[valid], preds),
+            "test_rmse": root_mean_squared_error(y[test], preds),
+            "test_r2": r2_score(y[test], preds),
             "best_epoch": None,
             "run_dir": None,
         }
 
     def _cluster_mean(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
-        Predict each valid molecule's cluster mean over train, or the train
+        Predict each test molecule's cluster mean over train, or the train
         mean where its cluster has no train molecules: what a model scores
         from knowing which series a molecule belongs to, with no chemistry
         inside the series.
@@ -201,23 +201,23 @@ class Experiment:
         Returns
         -------
         dict[str, float | str | None]
-            Valid RMSE and R2, and no epoch or run directory.
+            Test RMSE and R2, and no epoch or run directory.
         """
-        train, _, valid = splitter.split()
+        train, _, test = splitter.split()
         y = self.df["labels"].to_numpy()
         means = pd.Series(y[train]).groupby(splitter.clusters[train]).mean()
-        preds = pd.Series(splitter.clusters[valid]).map(means).fillna(y[train].mean())
+        preds = pd.Series(splitter.clusters[test]).map(means).fillna(y[train].mean())
         return {
-            "valid_rmse": root_mean_squared_error(y[valid], preds),
-            "valid_r2": r2_score(y[valid], preds),
+            "test_rmse": root_mean_squared_error(y[test], preds),
+            "test_r2": r2_score(y[test], preds),
             "best_epoch": None,
             "run_dir": None,
         }
 
     def _baseline(self, splitter: Splitters) -> dict[str, float | str | None]:
         """
-        Fit XGBoost with its tuned parameters and score it on valid, once, at
-        the boosting round early stopping on test selected.
+        Fit XGBoost with its tuned parameters and score it on test, once, at
+        the boosting round early stopping on valid selected.
 
         Parameters
         ----------
@@ -227,16 +227,16 @@ class Experiment:
         Returns
         -------
         dict[str, float | str | None]
-            Valid RMSE and R2, the best boosting round and no run directory.
+            Test RMSE and R2, the best boosting round and no run directory.
         """
-        train, test, valid = splitter.split()
+        train, valid, test = splitter.split()
         X, y = self.fingerprints, self.df["labels"].to_numpy()
-        model = fit_baseline(X, y, train, test, splitter.seed,
+        model = fit_baseline(X, y, train, valid, splitter.seed,
                              self._params("baseline", splitter.distribution))
-        preds = model.predict(X[valid])
+        preds = model.predict(X[test])
         return {
-            "valid_rmse": root_mean_squared_error(y[valid], preds),
-            "valid_r2": r2_score(y[valid], preds),
+            "test_rmse": root_mean_squared_error(y[test], preds),
+            "test_r2": r2_score(y[test], preds),
             "best_epoch": model.best_iteration,
             "run_dir": None,
         }
@@ -260,7 +260,7 @@ class Experiment:
         Returns
         -------
         dict[str, float | str | None]
-            Valid RMSE and R2, the selected epoch and the run directory.
+            Test RMSE and R2, the selected epoch and the run directory.
         """
         freeze = arm == "pretrained"
         params = self._params(arm, splitter.distribution)
@@ -271,8 +271,8 @@ class Experiment:
         model.fit()
         metrics = model.evaluate()
         return {
-            "valid_rmse": metrics["rmse"],
-            "valid_r2": metrics["r2"],
+            "test_rmse": metrics["rmse"],
+            "test_r2": metrics["r2"],
             "best_epoch": model.best_epoch,
             "run_dir": str(model.model_dir),
         }
@@ -293,7 +293,7 @@ class Experiment:
         -------
         dict
             The results row: what was run, the realised split sizes, the
-            valid scores and the wall time.
+            test scores and the wall time.
         """
         start = time.time()
         if arm == "mean":
@@ -304,12 +304,12 @@ class Experiment:
             result = self._baseline(splitter)
         else:
             result = self._transformer(splitter, arm)
-        train, test, valid = splitter.split()
+        train, valid, test = splitter.split()
         row = {
             "target": self.target, "mutation": self.mutation, "method": METHOD,
             "distribution": splitter.distribution, "arm": arm,
             "seed": splitter.seed, "min_cluster_size": self.min_cluster_size,
-            "n_train": len(train), "n_test": len(test), "n_valid": len(valid),
+            "n_train": len(train), "n_valid": len(valid), "n_test": len(test),
             **result, "seconds": time.time() - start,
         }
         pd.DataFrame([row]).to_csv(self.results_path, mode="a", index=False,

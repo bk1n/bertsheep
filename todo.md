@@ -15,11 +15,11 @@ not do yet, at the level of "what needs building", not how.
 - [x] Make the BindingDB download reproducible (currently rsync from a local Windows path) (not possible; added to README)
 - [x] Remove the fine-tuning methods arm from model fitting + results - no longer used
 - [x] Spelling + grammar check on README.md
-- [x] Ensure all units are in -ln IC50 (nM), use RMSE throughout (figures, README and console output report RMSE; MSE stays as the training loss, the history.csv loss columns and the Optuna objective, whose persisted study would otherwise mix units; `valid_r2` is still recorded)
-- [ ] Swap train/test/validation for train/validation/test 
+- [x] Ensure all units are in -ln IC50 (nM), use RMSE throughout (figures, README and console output report RMSE; MSE stays as the training loss, the history.csv loss columns and the Optuna objective, whose persisted study would otherwise mix units; `test_r2` is still recorded)
+- [x] Swap train/test/validation for train/validation/test (a rename only: each partition keeps its molecules, so no results changed; `out/` was migrated in place)
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
 - [ ] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons
-- [ ] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+validation sets
+- [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+test sets (`Results.similarity`: median over test of each molecule's nearest-train-neighbour similarity)
 - [ ] GitHub actions + pytest on every push plus a badge
 - [ ] If we switched targets, mutations, etcetera - would this repo function as expected?
 - [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt` + `best.pt`, and every epoch only on `GIF_SEED`'s trajectory runs)
