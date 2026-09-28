@@ -35,6 +35,7 @@ from bertsheep.model import (
     HISTORY,
     INIT_CHECKPOINT,
     SPLIT_NAMES,
+    SPLITS,
     embeddings,
     split_frames,
 )
@@ -75,6 +76,17 @@ Q1_FIGSIZE = (12, 8)
 # Boxes need less room than curves over tens of epochs, but enough that four
 # arm names fit under them.
 Q1_WIDTH_RATIOS = (2, 3)
+# Each seed's valid RMSE is drawn over its box, coloured by how close that
+# seed's valid set sits to its train set. Single-hue so it reads as magnitude,
+# and neither blue, orange nor plasma, which already mean an arm or affinity.
+SIMILARITY_CMAP = "Purples"
+SIMILARITY_AXIS = "Median valid-to-train nearest-neighbour Tanimoto"
+# Boxes faded so the seed points on them carry the colour.
+BOX_ALPHA = 0.4
+SEED_POINT_SIZE = 20
+# Horizontal spread of a box's points, in box widths either side of centre.
+JITTER = 0.15
+JITTER_SEED = 0
 
 # Aligned UMAP coordinates per GIF run. Cached because embedding every
 # checkpoint and aligning the epochs takes minutes, and restyling a figure
@@ -242,12 +254,18 @@ class Results:
         # Epochs are whole; left alone, the out panel's short range gets halves.
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    def _rmse_panel(self, ax: plt.Axes, distribution: str) -> None:
+    def _rmse_panel(self, ax: plt.Axes, distribution: str, norm: Normalize) -> None:
         """
         Valid RMSE per arm over the seeds on one distribution, each box in its
         arm's colour so it reads against the loss curves. Valid is the one
         split no arm's model selection read, so it is the only fair ground for
         comparing them.
+
+        Every seed is also a point on its arm's box, coloured by its split's
+        similarity. A seed's split is shared by every arm, so one colour
+        recurring high or low in every box shows that the split, not the model,
+        set the score. The points include the outliers, so the boxes draw no
+        fliers of their own.
 
         Parameters
         ----------
@@ -255,15 +273,26 @@ class Results:
             Axes to draw on.
         distribution : str
             One of DISTRIBUTIONS.
+        norm : Normalize
+            Similarity colour scale, shared by both distributions.
         """
         arms = list(ARM_COLOURS)
         scores = self.df[self.df["distribution"] == distribution]
+        groups = [scores[scores["arm"] == arm] for arm in arms]
         boxes = ax.boxplot(
-            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in arms],
-            tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True, medianprops={"color": "black"},
+            [group["valid_rmse"] for group in groups],
+            tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True,
+            showfliers=False, medianprops={"color": "black"},
         )
         for box, arm in zip(boxes["boxes"], arms):
-            box.set_facecolor(ARM_COLOURS[arm])
+            box.set(facecolor=ARM_COLOURS[arm], alpha=BOX_ALPHA)
+        rng = np.random.default_rng(JITTER_SEED)
+        similarity = self.similarity.loc[distribution]
+        for position, group in enumerate(groups, start=1):
+            ax.scatter(position + rng.uniform(-JITTER, JITTER, len(group)),
+                       group["valid_rmse"], c=group["seed"].map(similarity),
+                       cmap=SIMILARITY_CMAP, norm=norm, s=SEED_POINT_SIZE,
+                       edgecolors="black", linewidths=0.5, zorder=3)
         ax.set(title=f"{distribution}-distribution", ylabel=f"Validation {RMSE_AXIS}")
 
     def q1(self) -> Path:
@@ -271,7 +300,8 @@ class Results:
         README's Question 1 figure: one row per distribution, valid RMSE boxes
         on the left and RMSE curves on the right. Each column shares its y axis, so
         the in/out gap -- how much of an arm's score depends on having seen the
-        scaffold series -- reads straight down it.
+        scaffold series -- reads straight down it. The boxes' seed points share
+        one similarity colour bar.
 
         Returns
         -------
@@ -279,45 +309,109 @@ class Results:
             The saved figure.
         """
         histories = self._surviving()
+        # One scale over both distributions, so out's lower similarity shows.
+        norm = Normalize(self.similarity.min(), self.similarity.max())
         fig, axes = plt.subplots(len(DISTRIBUTIONS), 2, figsize=Q1_FIGSIZE,
                                  sharey="col", width_ratios=Q1_WIDTH_RATIOS,
                                  layout="constrained")
         for (box_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
-            self._rmse_panel(box_ax, distribution)
+            self._rmse_panel(box_ax, distribution, norm)
             self._loss_panel(curve_ax, histories, distribution)
         axes[0, 1].legend()
+        # Under the boxes rather than beside them, where it would take the
+        # width the arm names need.
+        fig.colorbar(ScalarMappable(norm, SIMILARITY_CMAP), ax=axes[:, 0],
+                     location="bottom", label=SIMILARITY_AXIS)
         FIGURE_DIR.mkdir(exist_ok=True)
         path = FIGURE_DIR / f"{self.name}_q1.png"
         fig.savefig(path, dpi=DPI, bbox_inches="tight")
         plt.close(fig)
         return path
 
-    def _frame(self, config: dict) -> pd.DataFrame:
+    @cached_property
+    def config(self) -> dict:
         """
-        The preprocessed frame the GIF runs were split over, rebuilt from the
-        data path, target and mutation their config.json records, with each
-        molecule's Butina cluster. The clusters come from the same cached
-        distance matrix Experiment splits with, so they are the groups the
-        out-of-distribution split held out.
+        The first transformer run's config.json. Every run in a results file
+        was split over the same frame, so any one of them records the data
+        path, target and mutation that rebuild it.
 
-        Parameters
-        ----------
-        config : dict
-            A GIF run's config.json.
+        Returns
+        -------
+        dict
+            The run's config.
+        """
+        run_dir = Path(self.df["run_dir"].dropna().iloc[0])
+        return json.loads((run_dir / CONFIG).read_text())
+
+    @cached_property
+    def frame(self) -> pd.DataFrame:
+        """
+        The preprocessed frame every run was split over, in the order the
+        splits' row positions index.
 
         Returns
         -------
         pd.DataFrame
-            Data._preprocess()'s frame plus a `cluster` column; 0 is the largest.
+            Data._preprocess()'s frame.
         """
-        frame = Data(config["data_path"], config["target"],
-                     config["mutation"])._preprocess()
+        return Data(self.config["data_path"], self.config["target"],
+                    self.config["mutation"])._preprocess()
+
+    @cached_property
+    def distances(self) -> np.ndarray:
+        """
+        Tanimoto distances over the frame: the same cached matrix Experiment
+        splits with, so reading it here costs a load rather than a rebuild.
+
+        Returns
+        -------
+        np.ndarray
+            (n, n) distance matrix in the frame's order.
+        """
         chemist = Chemist()
-        distances = chemist.cached_tanimoto(
-            chemist.fingerprints(frame["smiles"]), CACHE_DIR,
-            f"{config['target']}-{config['mutation'] or 'pooled'}",
+        return chemist.cached_tanimoto(
+            chemist.fingerprints(self.frame["smiles"]), CACHE_DIR,
+            f"{self.config['target']}-{self.config['mutation'] or 'pooled'}",
         )
-        return frame.assign(cluster=chemist.butina_clusters(distances))
+
+    @cached_property
+    def similarity(self) -> pd.Series:
+        """
+        How close each seed's valid set sits to its train set: every valid
+        molecule's Tanimoto similarity to its nearest train molecule, medianed
+        over valid. Nearest neighbour rather than all pairs because what helps
+        a model is having seen one close analogue; the median over all pairs
+        sits at ~0.15 on ECFP4 whatever the split. Read from the pretrained runs'
+        saved splits, since every seed has one and each arm on a seed shares
+        its split.
+
+        Returns
+        -------
+        pd.Series
+            Median nearest-neighbour similarity, indexed by (distribution, seed).
+        """
+        runs = self.df[self.df["arm"] == "pretrained"].set_index(
+            ["distribution", "seed"])["run_dir"]
+
+        def median_nearest(run_dir: str) -> float:
+            splits = pd.read_parquet(Path(run_dir) / SPLITS).groupby("split")["row"]
+            train, valid = splits.get_group("train"), splits.get_group("valid")
+            return np.median(1 - self.distances[np.ix_(valid, train)].min(axis=1))
+
+        return runs.map(median_nearest)
+
+    def _frame(self) -> pd.DataFrame:
+        """
+        The frame with each molecule's Butina cluster. The clusters come from
+        the same distance matrix Experiment splits with, so they are the
+        groups the out-of-distribution split held out.
+
+        Returns
+        -------
+        pd.DataFrame
+            The frame plus a `cluster` column; 0 is the largest.
+        """
+        return self.frame.assign(cluster=Chemist().butina_clusters(self.distances))
 
     def _coordinates(self, run_dir: Path, smiles: pd.Series,
                      epochs: np.ndarray) -> np.ndarray:
@@ -382,7 +476,7 @@ class Results:
         runs = self.df[(self.df["arm"] == "finetuned") & (self.df["seed"] == GIF_SEED)]
         runs = runs.set_index("distribution").loc[list(DISTRIBUTIONS)]
         run_dirs = [Path(run_dir) for run_dir in runs["run_dir"]]
-        frame = self._frame(json.loads((run_dirs[0] / CONFIG).read_text()))
+        frame = self._frame()
         trajectories = []
         for (distribution, run), run_dir in zip(runs.iterrows(), run_dirs):
             molecules = pd.concat(

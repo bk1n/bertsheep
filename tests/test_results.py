@@ -70,9 +70,29 @@ def test_surviving_drops_epochs_most_seeds_never_reached(
 def test_q1_writes_figure(results_path: Path, tmp_path: Path,
                           monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(br, "FIGURE_DIR", tmp_path / "figures")
-    path = Results(results_path).q1()
+    results = Results(results_path)
+    # Stands in for the cached property, which needs the dump and real splits.
+    results.similarity = pd.Series(
+        [0.7, 0.4], index=pd.MultiIndex.from_tuples([("in", 0), ("out", 0)]))
+    path = results.q1()
     assert path == tmp_path / "figures" / "EGFR-wildtype_q1.png"
     assert path.stat().st_size > 0
+
+
+def test_similarity_is_median_nearest_train_neighbour(results_path: Path,
+                                                      tmp_path: Path) -> None:
+    # Molecules 0-2 are train and 3-4 valid. 3's nearest train molecule is 0.2
+    # away and 4's is 0.6 away, so the similarities are 0.8 and 0.4, median 0.6.
+    distances = np.ones((5, 5))
+    distances[3, [0, 1, 2]] = [0.5, 0.2, 0.9]
+    distances[4, [0, 1, 2]] = [0.6, 0.7, 0.8]
+    for distribution in DISTRIBUTIONS:
+        pd.DataFrame({"row": [0, 1, 2, 3, 4],
+                      "split": ["train"] * 3 + ["valid"] * 2}).to_parquet(
+            tmp_path / f"pretrained-{distribution}" / br.SPLITS, index=False)
+    results = Results(results_path)
+    results.distances = distances  # stands in for the cached matrix
+    np.testing.assert_allclose(results.similarity.loc[("in", 0)], 0.6)
 
 
 @pytest.fixture

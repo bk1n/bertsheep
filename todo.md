@@ -19,7 +19,7 @@ not do yet, at the level of "what needs building", not how.
 - [ ] Swap train/test/validation for train/validation/test 
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
 - [ ] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons
-- [ ] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+validation sets
+- [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+validation sets (`Results.similarity`: median over valid of each molecule's nearest-train-neighbour similarity)
 - [ ] GitHub actions + pytest on every push plus a badge
 - [ ] If we switched targets, mutations, etcetera - would this repo function as expected?
 - [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt` + `best.pt`, and every epoch only on `GIF_SEED`'s trajectory runs)

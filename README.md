@@ -71,7 +71,7 @@ Tuned with Optuna (TPE) on seed 0's split, scored on test, validation never read
 
 ### Model performance
 
-![Question 1: validation RMSE per arm (left) and RMSE curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
+![Question 1: validation RMSE per arm (left; one point per seed, coloured by valid-to-train similarity) and RMSE curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
 
 Validation RMSE in −ln IC50 (nM), mean ± SD over 30 seeds.
 
