@@ -45,8 +45,8 @@ def results_path(tmp_path: Path) -> Path:
 def test_histories_are_long_and_complete(results_path: Path) -> None:
     histories = Results(results_path)._histories()
     assert list(histories.columns) == ["arm", "distribution", "seed", "epoch",
-                                       "split", "loss"]
-    assert not histories["loss"].isna().any()
+                                       "split", "rmse"]
+    assert not histories["rmse"].isna().any()
     assert set(histories["split"]) == {"train", "test", "valid"}
     assert set(histories["arm"]) == {"pretrained", "finetuned"}
     # 4 runs x (EPOCHS + 1 test and valid losses each + EPOCHS train losses)
@@ -59,7 +59,7 @@ def test_surviving_drops_epochs_most_seeds_never_reached(
     # seeds, so only epochs 0 and 1 keep the 90% needed.
     histories = pd.DataFrame([
         {"arm": "pretrained", "distribution": "in", "seed": seed, "epoch": epoch,
-         "split": "test", "loss": 1.0}
+         "split": "test", "rmse": 1.0}
         for seed in range(10) for epoch in range(seed + 1)
     ])
     monkeypatch.setattr(Results, "_histories", lambda self: histories)

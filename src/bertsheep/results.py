@@ -63,8 +63,10 @@ REFERENCE_ARMS = ("cluster_mean", "baseline")
 SPLIT_LABELS = {"train": "train", "test": "test", "valid": "validation"}
 # Dotted for valid, so the references -- also valid scores -- take dash-dot.
 SPLIT_STYLES = {"train": "--", "test": "-", "valid": ":"}
-# The model loss is MSE on the -ln IC50 (nM) label, see eda.LABEL_AXIS.
-LOSS_AXIS = "MSE, -ln IC50 (nM)"
+# Every score is RMSE, in the label's own units (see eda.LABEL_AXIS), so the
+# boxes and curves read on one scale. The model trains on MSE; history.csv's
+# losses are split-wide MSE, so their square root is that split's RMSE.
+RMSE_AXIS = f"RMSE, {LABEL_AXIS}"
 # Early stopping ends seeds at different epochs, so an epoch is only plotted
 # while at least this share of an arm's seeds are still training; past it the
 # curve would be the few longest runs, not the arm.
@@ -162,16 +164,16 @@ class Results:
 
     def _histories(self) -> pd.DataFrame:
         """
-        Every transformer run's per-epoch train, test and valid loss, one row per
-        (run, epoch, split). Driven off the results file's run_dir rather than a
+        Every transformer run's per-epoch train, test and valid RMSE, one row
+        per (run, epoch, split). Driven off the results file's run_dir rather than a
         glob of out/models/, which also holds tuning-trial and legacy runs; the
         baseline has no run_dir and no epochs, so it drops out here.
 
         Returns
         -------
         pd.DataFrame
-            Columns arm, distribution, seed, epoch, split and loss. Epoch -1 has
-            test and valid losses only, since nothing was trained before it.
+            Columns arm, distribution, seed, epoch, split and rmse. Epoch -1 has
+            test and valid scores only, since nothing was trained before it.
         """
         runs = self.df.dropna(subset="run_dir")
         histories = pd.concat(
@@ -182,8 +184,9 @@ class Results:
         return histories.melt(
             id_vars=["arm", "distribution", "seed", "epoch"],
             value_vars=["train_loss", "test_loss", "valid_loss"], var_name="split",
-            value_name="loss",
-        ).dropna().assign(split=lambda d: d["split"].str.removesuffix("_loss"))
+            value_name="rmse",
+        ).dropna().assign(split=lambda d: d["split"].str.removesuffix("_loss"),
+                          rmse=lambda d: np.sqrt(d["rmse"]))
 
     def _surviving(self) -> pd.DataFrame:
         """
@@ -206,11 +209,11 @@ class Results:
     def _loss_panel(self, ax: plt.Axes, histories: pd.DataFrame,
                     distribution: str) -> None:
         """
-        Train, test and valid loss per epoch for the two transformer arms on one
+        Train, test and valid RMSE per epoch for the two transformer arms on one
         distribution: every seed's value as a point, with a LOESS trend per arm
         and split. The reference arms have no epochs -- the baseline counts
         boosting rounds, the cluster mean fits nothing -- so each is a
-        horizontal line at its mean valid MSE rather than a curve.
+        horizontal line at its mean valid RMSE rather than a curve.
 
         Parameters
         ----------
@@ -225,23 +228,23 @@ class Results:
         panel = histories[histories["distribution"] == distribution]
         for (arm, split), group in panel.groupby(["arm", "split"]):
             colour = ARM_COLOURS[arm]
-            ax.scatter(group["epoch"], group["loss"], s=POINT_SIZE,
+            ax.scatter(group["epoch"], group["rmse"], s=POINT_SIZE,
                        alpha=POINT_ALPHA, color=colour, linewidths=0)
-            ax.plot(*lowess(group["loss"], group["epoch"], frac=LOESS_FRAC).T,
+            ax.plot(*lowess(group["rmse"], group["epoch"], frac=LOESS_FRAC).T,
                     color=colour, ls=SPLIT_STYLES[split], label=f"{ARM_LABELS[arm]} {SPLIT_LABELS[split]}")
         for arm in REFERENCE_ARMS:
             scores = self.df[(self.df["arm"] == arm)
                              & (self.df["distribution"] == distribution)]
-            ax.axhline((scores["valid_rmse"] ** 2).mean(), color=ARM_COLOURS[arm],
+            ax.axhline(scores["valid_rmse"].mean(), color=ARM_COLOURS[arm],
                        ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['valid']}")
         ax.set(title=f"{distribution}-distribution", xlabel="Epoch",
-               ylabel=LOSS_AXIS)
+               ylabel=RMSE_AXIS)
         # Epochs are whole; left alone, the out panel's short range gets halves.
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    def _r2_panel(self, ax: plt.Axes, distribution: str) -> None:
+    def _rmse_panel(self, ax: plt.Axes, distribution: str) -> None:
         """
-        Valid R2 per arm over the seeds on one distribution, each box in its
+        Valid RMSE per arm over the seeds on one distribution, each box in its
         arm's colour so it reads against the loss curves. Valid is the one
         split no arm's model selection read, so it is the only fair ground for
         comparing them.
@@ -256,17 +259,17 @@ class Results:
         arms = list(ARM_COLOURS)
         scores = self.df[self.df["distribution"] == distribution]
         boxes = ax.boxplot(
-            [scores.loc[scores["arm"] == arm, "valid_r2"] for arm in arms],
+            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in arms],
             tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True, medianprops={"color": "black"},
         )
         for box, arm in zip(boxes["boxes"], arms):
             box.set_facecolor(ARM_COLOURS[arm])
-        ax.set(title=f"{distribution}-distribution", ylabel="Validation Set R²")
+        ax.set(title=f"{distribution}-distribution", ylabel=f"Validation {RMSE_AXIS}")
 
     def q1(self) -> Path:
         """
-        README's Question 1 figure: one row per distribution, valid R2 boxes on
-        the left and loss curves on the right. Each column shares its y axis, so
+        README's Question 1 figure: one row per distribution, valid RMSE boxes
+        on the left and RMSE curves on the right. Each column shares its y axis, so
         the in/out gap -- how much of an arm's score depends on having seen the
         scaffold series -- reads straight down it.
 
@@ -279,9 +282,9 @@ class Results:
         fig, axes = plt.subplots(len(DISTRIBUTIONS), 2, figsize=Q1_FIGSIZE,
                                  sharey="col", width_ratios=Q1_WIDTH_RATIOS,
                                  layout="constrained")
-        for (r2_ax, loss_ax), distribution in zip(axes, DISTRIBUTIONS):
-            self._r2_panel(r2_ax, distribution)
-            self._loss_panel(loss_ax, histories, distribution)
+        for (box_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
+            self._rmse_panel(box_ax, distribution)
+            self._loss_panel(curve_ax, histories, distribution)
         axes[0, 1].legend()
         FIGURE_DIR.mkdir(exist_ok=True)
         path = FIGURE_DIR / f"{self.name}_q1.png"
@@ -494,7 +497,7 @@ class Results:
     def _history_panel(self, ax: plt.Axes,
                        trajectory: Trajectory) -> Callable[[float], None]:
         """
-        The run's train, test and valid loss, styled as in q1(), with the
+        The run's train, test and valid RMSE, styled as in q1(), with the
         selected epoch starred on the test curve it was selected on. A cursor
         tracks the frame's epoch, so each frame of the latent space can be read
         against where training was.
@@ -513,13 +516,13 @@ class Results:
         """
         history = trajectory.history
         for split, label in SPLIT_LABELS.items():
-            ax.plot(history["epoch"], history[f"{split}_loss"],
+            ax.plot(history["epoch"], np.sqrt(history[f"{split}_loss"]),
                     color=ARM_COLOURS["finetuned"], ls=SPLIT_STYLES[split],
                     label=label)
-        best = history.set_index("epoch").loc[trajectory.best_epoch, "test_loss"]
+        best = np.sqrt(history.set_index("epoch").loc[trajectory.best_epoch, "test_loss"])
         ax.plot(trajectory.best_epoch, best, "*", color="black", ms=10,
                 label="selected epoch")
-        ax.set(xlabel="Epoch", ylabel=LOSS_AXIS)
+        ax.set(xlabel="Epoch", ylabel=RMSE_AXIS)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         cursor = ax.axvline(-1, color="black", lw=1)
         last = history["epoch"].max()

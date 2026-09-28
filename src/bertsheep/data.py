@@ -265,7 +265,8 @@ class Data():
 
     def _transform_labels(self, df):
         """
-        Converts IC50 (nM) to the -log scale the model is trained on.
+        Converts IC50 (nM) to -ln IC50 (nM), the natural-log scale the model is
+        trained and scored on; every RMSE is in these units.
         """
         df = df.copy()
         df["labels"] = -np.log(df["labels"])

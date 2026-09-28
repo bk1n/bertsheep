@@ -719,8 +719,8 @@ class Model():
         })
         pd.DataFrame(self.history).to_csv(self.model_dir / HISTORY, index=False)
         print(f"-- Epoch: {epoch} -- Train: {train_loss:.4f} "
-              f"-- Test: {test_loss:.4f} (R2 {test_metrics['r2']:.3f}) "
-              f"-- Valid: {valid_loss:.4f} (R2 {valid_metrics['r2']:.3f}) "
+              f"-- Test: {test_loss:.4f} (RMSE {test_metrics['rmse']:.3f}) "
+              f"-- Valid: {valid_loss:.4f} (RMSE {valid_metrics['rmse']:.3f}) "
               f"-- {elapsed:.1f}s")
         return test_loss
 
@@ -808,7 +808,7 @@ class Model():
         loss, preds, labels = self._score(self.valid_loader)
         metrics = self._metrics(preds, labels)
         print(f"-- Valid (weights from epoch {self.best_epoch}) -- Loss: {loss:.4f} "
-              f"-- RMSE: {metrics['rmse']:.3f} -- R2: {metrics['r2']:.3f}")
+              f"-- RMSE: {metrics['rmse']:.3f}")
         return metrics
 
 

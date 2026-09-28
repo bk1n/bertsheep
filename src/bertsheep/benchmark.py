@@ -135,7 +135,7 @@ class Benchmark:
         dict[str, float]
             Mean seconds per epoch, peak allocated VRAM in GiB (NaN on CPU),
             the projected minutes for a full fit, and the final epoch's train
-            loss, test loss and test R2.
+            loss, test loss and test RMSE.
         """
         cuda = model.device.type == "cuda"
         if cuda:
@@ -155,7 +155,7 @@ class Benchmark:
             "projected_fit_minutes": seconds * model.num_epochs / 60,
             "train_loss": train_loss,
             "test_loss": test_loss,
-            "test_r2": model._metrics(preds, labels)["r2"],
+            "test_rmse": model._metrics(preds, labels)["rmse"],
         }
 
     def _arm(self, splitter: Splitters, autocast: bool) -> dict[str, float]:
@@ -243,7 +243,7 @@ class Benchmark:
         """
         The same fit in fp32 and under bf16 autocast, so the speed and memory
         saved can be read next to any change in train loss, test loss and test
-        R2. On CPU autocast is a no-op, so the two rows differ only by timing
+        RMSE. On CPU autocast is a no-op, so the two rows differ only by timing
         noise.
 
         Returns
