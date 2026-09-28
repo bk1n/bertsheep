@@ -1,4 +1,3 @@
-import argparse
 import json
 from collections.abc import Callable
 from functools import cached_property
@@ -898,15 +897,3 @@ class Results:
         """
         return [figure(colour) for colour in COLOURINGS
                 for figure in (self.q2_gif, self.q2_filmstrip)]
-
-
-if __name__ == "__main__":
-    # The results file is an argument rather than a literal, so this is not
-    # the hardcoded-target __main__ pattern todo.md is undoing elsewhere.
-    parser = argparse.ArgumentParser(description=Results.__doc__)
-    parser.add_argument("results", type=Path,
-                        help="out/experiments/<target>-<mutation>.csv")
-    results = Results(parser.parse_args().results)
-    print(results.comparisons())
-    print(results.q1())
-    print(*results.q2(), sep="\n")

@@ -20,14 +20,16 @@ The project uses `uv` (Python 3.14, `uv_build` backend, src layout).
 
 ```bash
 uv sync                      # create/refresh .venv from uv.lock
-uv run bertsheep EGFR        # full run: tune, then the arm x distribution x seed grid (resumable)
-uv run bertsheep EGFR --arms pretrained --seeds 3   # smoke run; its rows count towards the grid
+uv run bertsheep EGFR --train             # full run: tune, then the arm x distribution x seed grid (resumable)
+uv run bertsheep EGFR --train --arms pretrained --seeds 3   # smoke run; its rows count towards the grid
+uv run bertsheep EGFR --results           # arm comparisons + Question 1/2 figures from the results CSV
+uv run bertsheep EGFR --mutation L858R --train --results   # both, training first
 uv run python -c "..."       # run anything against the project env
 uv add <pkg>                 # add a dependency (updates pyproject.toml + uv.lock)
 ./fetch.sh                   # rsync the BindingDB dump from Windows into ./data
 ```
 
-Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. `.github/workflows/tests.yml` runs the whole suite on every push, downloading ChemBERTa first so the model tests run too (on CPU). There is no linter config. `bertsheep` (`experiment.main`) is the one entry point for a run; the `__main__` blocks in `eda.py`, `model.py` and `benchmark.py` are legacy and slated for removal. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
+Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. `.github/workflows/tests.yml` runs the whole suite on every push, downloading ChemBERTa first so the model tests run too (on CPU). There is no linter config. `bertsheep` (`cli.main`) is the one entry point, for training (`--train`) and figures (`--results`) alike; the `__main__` blocks in `eda.py`, `model.py` and `benchmark.py` are legacy and slated for removal. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
 
 Typical interactive use for exploration:
 
@@ -51,7 +53,7 @@ Because the source is large, `Data._load` reads it in chunks (`CHUNK_SIZE`) with
 
 - **`data.py`** — `Data` owns the raw-dump → training-frame pipeline: `_load` → `_filter` → `_deduplicate` → `_canonicalise` → `_transform_labels`, orchestrated by `_preprocess`. Each stage is a small method taking and returning a dataframe, so stages can be run and inspected individually. Module-level constants (`LABEL`, `MAX_SMILES_LENGTH`, `CHUNK_SIZE`, `COLUMNS`, `TARGET`) hold everything configurable; `TARGET` maps a short name to `(UniProt entry name, primary ID)` and is currently `EGFR` only, whereas the README and legacy code assume five targets.
 - **`eda.py`** — `Eda` wraps a preprocessed `(smiles, labels)` frame and writes figures to `figures/<target>_<name>.png`. Plots are thin wrappers over pandas/matplotlib built-ins; see "Use the library" below.
-- **`results.py`** — `Results` wraps an experiment's results CSV (`out/experiments/<target>-<mutation>.csv`) and writes figures to the tracked `figures/`, since they are embedded in `results.md`/`README.md` and `out/` is gitignored. Per-run histories are found via the CSV's `run_dir` column, never by globbing `out/models/` (which also holds tuning-trial runs). Use: `Results(Path("out/experiments/EGFR-wildtype.csv")).loss_curves()`. `q2()` draws the Question 2 aligned-UMAP GIFs and filmstrips from `GIF_SEED`'s fine-tuned runs (the only ones with a checkpoint per epoch), over a seeded fifth of each split; the coordinates take ~12 min and cache to `out/latent/<run>.npy`, which must be deleted after changing `GIF_LAYERS`, `SUBSAMPLE` or the UMAP constants.
+- **`results.py`** — `Results` wraps an experiment's results CSV (`out/experiments/<target>-<mutation>.csv`) and writes figures to the tracked `figures/`, since they are embedded in `results.md`/`README.md` and `out/` is gitignored. Per-run histories are found via the CSV's `run_dir` column, never by globbing `out/models/` (which also holds tuning-trial runs). Use: `uv run bertsheep EGFR --results`, or `Results(results_path("EGFR", "wildtype")).q1()` from `experiment.results_path`. `q2()` draws the Question 2 aligned-UMAP GIFs and filmstrips from `GIF_SEED`'s fine-tuned runs (the only ones with a checkpoint per epoch), over a seeded fifth of each split; the coordinates take ~12 min and cache to `out/latent/<run>.npy`, which must be deleted after changing `GIF_LAYERS`, `SUBSAMPLE` or the UMAP constants.
 - **`chemistry.py`** — empty placeholder for the scaffold/fingerprint/splitting logic being ported from `modules/data.py` (Murcko scaffolds, Butina/fingerprint clustering, split methods).
 
 Label semantics are in flux and are the thing most likely to trip you up: the label column is selected by the `LABEL` constant and is currently **IC50** (nM) transformed with `-np.log`, i.e. natural log, not standard pKi (`-log10` of molar). The README talks about Ki. `MAX_KI_NM` exists but the affinity cutoff is currently not applied. Don't silently change any of this — it affects every number downstream.

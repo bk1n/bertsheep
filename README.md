@@ -2,25 +2,31 @@
 [![tests](https://github.com/bk1n/bertsheep/actions/workflows/tests.yml/badge.svg)](https://github.com/bk1n/bertsheep/actions/workflows/tests.yml)
 
 Bidirectional encoder representations from transformers (BERT) for binding affinity (ba 🐑) prediction.
-Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on [binding affinity](https://www.bindingdb.org/) of compounds to a single target (EGFR) and evaluates generalisation performance. 
+Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on [binding affinity](https://www.bindingdb.org/) of compounds to a single target and evaluates generalisation performance. 
 
 Part of my work at Accenture Labs, refactored with Claude Code.
 
 ## Running
 Run the tests: `uv run pytest`\
-Train the models on a given target: `uv run bertsheep TARGET`\
-Train the models on a given target, with a particular mutation: `uv run bertsheep TARGET --mutation MUTATION`\
-Visualise the results: `uv run python -m bertsheep.results out/experiments/{TARGET}-{MUTATION}.csv`
+Train the model:
+```
+uv run bertsheep TARGET [--mutation MUTATION] [--train] [--results]
+                        [--arms ARM ...] [--distributions {in,out} ...] [--seeds N]
+```
 
-Where mutation is either no mutation (defaults to 'wildtype') or derived from `Target Name` in the bindingDB .tsv file (see table below for examples).
+e.g. the following will fine-tune a model on EGFR (wildtype) and generate results:
+```
+uv run bertsheep EGFR --train --results
+````
 
-Besides EGFR, three further targets are currently registered for model training:
+Four targets, including EGFR, are currently registered for model training:
 
 | Command | Ligands | Butina clusters of 10+ | Example mutation |
 |---|---|---|---|
+| EGFR | 11,056 | 219 | L858R,T790M |
 | JAK2 | 10,804 | 158 |  |
-| BRAF | 3,048 | 37 | G2019S 
-| LRRK2 | 1,458 | 28 | V600E |
+| BRAF | 3,048 | 37 | V600E | 
+| LRRK2 | 1,458 | 28 | G2019S |
 
 ## Setup
 Download and unzip `BindingDB_All_202609_tsv` from BindingDB into `data/`.

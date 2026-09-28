@@ -1,4 +1,3 @@
-import argparse
 import json
 import time
 from collections.abc import Iterable
@@ -11,7 +10,7 @@ from sklearn.metrics import r2_score, root_mean_squared_error
 
 from bertsheep.baseline import fit_baseline
 from bertsheep.chemistry import Chemist
-from bertsheep.data import CACHE_DIR, DUMP_PATH, WILD_TYPE, Data
+from bertsheep.data import CACHE_DIR, WILD_TYPE, Data
 from bertsheep.model import Model
 from bertsheep.splitters import DISTRIBUTIONS, Splitters
 from bertsheep.tuning import Tuner, best_params_path, study_name
@@ -42,6 +41,27 @@ TUNING_SEED = 0
 GIF_SEED = 0
 MIN_CLUSTER_SIZE = 10
 MUTATION = WILD_TYPE
+
+
+def results_path(target: str, mutation: str | None) -> Path:
+    """
+    Where a target and mutation's results rows live. Module-level so the
+    figures can find the file without building an Experiment, which costs a
+    preprocess and a distance matrix.
+
+    Parameters
+    ----------
+    target : str
+        Short target name.
+    mutation : str | None
+        Variant the frame was selected for; None is the pooled frame.
+
+    Returns
+    -------
+    Path
+        out/experiments/<target>-<mutation>.csv.
+    """
+    return EXPERIMENT_DIR / RESULTS.format(target=target, mutation=mutation or "pooled")
 
 
 class Experiment:
@@ -83,16 +103,13 @@ class Experiment:
         self.target = target
         self.mutation = mutation
         self.min_cluster_size = min_cluster_size
-        variant = mutation or "pooled"
         chemist = Chemist()
         self.fingerprints = chemist.fingerprints(df["smiles"])
         self.distances = chemist.cached_tanimoto(
-            self.fingerprints, CACHE_DIR, f"{target}-{variant}"
+            self.fingerprints, CACHE_DIR, f"{target}-{mutation or 'pooled'}"
         )
         EXPERIMENT_DIR.mkdir(parents=True, exist_ok=True)
-        self.results_path = EXPERIMENT_DIR / RESULTS.format(
-            target=target, mutation=variant
-        )
+        self.results_path = results_path(target, mutation)
 
     def _splitter(self, distribution: str, seed: int) -> Splitters:
         """
@@ -412,30 +429,3 @@ def experiment(data_path: str | Path, target: str, arm: str, distribution: str,
     """
     df = Data(data_path, target, mutation)._preprocess()
     return Experiment(df, target, mutation).run(arm, distribution, seed)
-
-
-def main() -> None:
-    """
-    Command-line entry point, `uv run bertsheep <target>`: preprocess the
-    target, tune any (arm, distribution) whose study is short of its trials,
-    then run every missing cell of the matrix. Both stages resume, so the same
-    command restarts a run that died part way; the narrowing flags are for a
-    smoke run whose rows then count towards the full grid, and they narrow the
-    tuning too, since each arm reads only its own study.
-    """
-    parser = argparse.ArgumentParser(prog="bertsheep", description=main.__doc__)
-    parser.add_argument("target", help="short target name, a key of data.TARGET")
-    parser.add_argument("--mutation", default=MUTATION,
-                        help=f"variant to keep (default: {MUTATION})")
-    parser.add_argument("--arms", nargs="+", choices=ARMS, default=ARMS)
-    parser.add_argument("--distributions", nargs="+", choices=DISTRIBUTIONS,
-                        default=DISTRIBUTIONS)
-    parser.add_argument("--seeds", type=int, default=N_REPEATS,
-                        help=f"run seeds 0..N-1 (default: {N_REPEATS})")
-    args = parser.parse_args()
-
-    df = Data(DUMP_PATH, args.target, args.mutation)._preprocess()
-    exp = Experiment(df, args.target, args.mutation)
-    exp.tune(args.arms, args.distributions)
-    exp.grid(args.arms, args.distributions, range(args.seeds))
-    print(f"-- Results in {exp.results_path}")
