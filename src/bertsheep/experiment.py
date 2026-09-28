@@ -32,6 +32,7 @@ METHOD = "butina"
 # the train mean everywhere and scores exactly as "mean" does.
 ARMS = ("mean", "cluster_mean", "baseline", "pretrained", "finetuned")
 UNTUNED = {"mean", "cluster_mean"}  # arms with no hyperparameters to search
+TUNED_ARMS = tuple(arm for arm in ARMS if arm not in UNTUNED)
 N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
 # The search runs once, on the first replicate's split; every seed reuses it.
 TUNING_SEED = 0
@@ -48,14 +49,15 @@ class Experiment:
     Run the arm x distribution x seed matrix that answers README's Question 1
     for one target frame, and write one results row per run.
 
-    The three arms -- an XGBoost fingerprint baseline, a frozen pretrained
-    encoder with a trained head, and a fine-tuned encoder -- are scored on the
-    same split for every (distribution, seed), so their differences can be
-    read in pairs, seed by seed. The fingerprints and Tanimoto distance matrix
-    are computed once here and shared by every splitter, since they depend on
-    the molecules and not on the seed. The matrix is also cached under
-    out/.cache/, so a restarted or repeated run on the same frame loads it
-    rather than spending a minute rebuilding it.
+    Every arm -- the label-only and cluster-mean references, an XGBoost
+    fingerprint baseline, a frozen pretrained encoder with a trained head, and
+    a fine-tuned encoder -- is scored on the same split for every
+    (distribution, seed), so their differences can be read in pairs, seed by
+    seed. The fingerprints and Tanimoto distance matrix are computed once here
+    and shared by every splitter, since they depend on the molecules and not on
+    the seed. The matrix is also cached under out/.cache/, so a restarted or
+    repeated run on the same frame loads it rather than spending a minute
+    rebuilding it.
 
     Rows are appended to out/experiments/<target>-<mutation>.csv as each run
     finishes, and grid() skips combinations already there, so a matrix that
@@ -131,7 +133,7 @@ class Experiment:
         distributions : Iterable[str]
             Distributions to tune for.
         """
-        arms = [arm for arm in arms if arm not in UNTUNED]
+        arms = [arm for arm in arms if arm in TUNED_ARMS]
         for distribution in distributions:
             splitter = self._splitter(distribution, TUNING_SEED)
             for arm in arms:
@@ -352,7 +354,7 @@ class Experiment:
              seeds: Iterable[int] = range(N_REPEATS)) -> pd.DataFrame:
         """
         Run every missing combination. Arms are the innermost loop so each
-        (distribution, seed) builds one splitter and hands it to all three:
+        (distribution, seed) builds one splitter and hands it to every arm:
         the arms are compared on the same rows by construction.
 
         Parameters
