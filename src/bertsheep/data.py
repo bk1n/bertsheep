@@ -45,8 +45,16 @@ COLUMNS = {
     "UniProt (SwissProt) Primary ID of Target Chain 1": "uniprot_id",
 }
 
+# Short name -> (UniProt entry name, primary ID). A target is only usable if it
+# has enough ligands to survive MIN_CLUSTER_SIZE and still leave whole Butina
+# clusters to hold out, so these are chosen on cluster count rather than ligand
+# count: RET has more V804M ligands than LRRK2 has G2019S, but only 17 clusters
+# of 10+ against LRRK2's 28, too few for an out-of-distribution split to divide.
 TARGET = {
-    "EGFR": ("EGFR_HUMAN", "P00533")
+    "EGFR": ("EGFR_HUMAN", "P00533"),
+    "JAK2": ("JAK2_HUMAN", "O60674"),
+    "BRAF": ("BRAF_HUMAN", "P15056"),
+    "LRRK2": ("LRRK2_HUMAN", "Q5S007"),
 }
 
 class Data():

@@ -12,7 +12,15 @@ Train the models on a given target: `uv run bertsheep TARGET`\
 Train the models on a given target, with a particular mutation: `uv run bertsheep TARGET --mutation MUTATION`\
 Visualise the results: `uv run python -m bertsheep.results out/experiments/{TARGET}-{MUTATION}.csv`
 
-Where mutation is either 'wildtype' (no mutation) or derived from `Target Name` in the bindingDB .tsv file.
+Where mutation is either no mutation (defaults to 'wildtype') or derived from `Target Name` in the bindingDB .tsv file (see table below for examples).
+
+Besides EGFR, three further targets are currently registered for model training:
+
+| Command | Ligands | Butina clusters of 10+ | Example mutation |
+|---|---|---|---|
+| JAK2 | 10,804 | 158 |  |
+| BRAF | 3,048 | 37 | G2019S 
+| LRRK2 | 1,458 | 28 | V600E |
 
 ## Setup
 Download and unzip `BindingDB_All_202609_tsv` from BindingDB into `data/`.
