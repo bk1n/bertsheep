@@ -20,8 +20,8 @@ not do yet, at the level of "what needs building", not how.
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
 - [x] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons (`Results.comparisons()`, brackets on the q1 boxes)
 - [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+test sets (`Results.similarity`: median over test of each molecule's nearest-train-neighbour similarity)
-- [ ] GitHub actions + pytest on every push plus a badge
-- [ ] If we switched targets, mutations, etcetera - would this repo function as expected?
+- [x] GitHub actions + pytest on every push plus a badge
+- [x] If we switched targets, mutations, etcetera - would this repo function as expected?
 - [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt` + `best.pt`, and every epoch only on `GIF_SEED`'s trajectory runs)
 - [x] `Eda` UMAP split plots call the removed `Chemist.split_groups`; point them at `Splitters`
 - [ ] `eda.py` is the only module in `src/` with no type hints — the methods touched by the `Splitters` port have them, the rest do not
