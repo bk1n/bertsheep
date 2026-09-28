@@ -10,15 +10,15 @@ not do yet, at the level of "what needs building", not how.
 
 ## Housekeeping 
 
-- [ ] Rotate the W&B API key still in git history (gone from the tree since 85439be, but `f8f1626` is pushed to `origin/main`, so the key must be revoked on wandb.ai; rewriting history is optional once it is dead)
-- [x] Untrack the 12 committed `.pyc` files (deleted in 85439be; `__pycache__` is gitignored)
+- [ ] Rotate the W&B API key (scrubbed from history with `git filter-repo` and force-pushed 2026-09-28; still needs revoking on wandb.ai, and GitHub serves the old commits by SHA until Support purges them)
+- [x] Untrack the 12 committed `.pyc` files (deleted in the "rm old code" commit; `__pycache__` is gitignored)
 - [x] Make the BindingDB download reproducible (currently rsync from a local Windows path) (not possible; added to README)
 - [x] Remove the fine-tuning methods arm from model fitting + results - no longer used
 - [x] Spelling + grammar check on README.md
 - [x] Ensure all units are in -ln IC50 (nM), use RMSE throughout (figures, README and console output report RMSE; MSE stays as the training loss, the history.csv loss columns and the Optuna objective, whose persisted study would otherwise mix units; `valid_r2` is still recorded)
 - [ ] Swap train/test/validation for train/validation/test 
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
-- [ ] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons
+- [x] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons (`Results.comparisons()`, brackets on the q1 boxes)
 - [ ] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+validation sets
 - [ ] GitHub actions + pytest on every push plus a badge
 - [ ] If we switched targets, mutations, etcetera - would this repo function as expected?

@@ -2,12 +2,14 @@ import argparse
 import json
 from collections.abc import Callable
 from functools import cached_property
+from itertools import combinations
 from pathlib import Path
 from typing import NamedTuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.formula.api as smf
 import umap
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.cm import ScalarMappable
@@ -15,6 +17,7 @@ from matplotlib.colors import ListedColormap, Normalize
 from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
 from statsmodels.nonparametric.smoothers_lowess import lowess
+from statsmodels.stats.multitest import multipletests
 
 from bertsheep.chemistry import Chemist
 from bertsheep.data import CACHE_DIR, Data
@@ -75,6 +78,18 @@ Q1_FIGSIZE = (12, 8)
 # Boxes need less room than curves over tens of epochs, but enough that four
 # arm names fit under them.
 Q1_WIDTH_RATIOS = (2, 3)
+# Arms tested against each other, in box order. "mean" is left out: every model
+# beats it by a mile, and out-of-distribution it scores exactly as the cluster
+# mean does, so it adds tests without adding information -- and, sharing the
+# mixed model's residual variance, it would move the others' standard errors.
+COMPARED_ARMS = ("cluster_mean", "baseline", "pretrained", "finetuned")
+# Holm keeps Bonferroni's family-wise error rate and is never less powerful.
+P_ADJUST = "holm"
+SIGNIFICANCE_BINS = [0, 0.001, 0.01, 0.05, 1]
+SIGNIFICANCE_LABELS = ["***", "**", "*", "ns"]
+# Gap between stacked brackets, as a share of the valid RMSE's range over both
+# distributions: the box rows share a y axis, so one step suits both.
+BRACKET_STEP = 0.08
 
 # Aligned UMAP coordinates per GIF run. Cached because embedding every
 # checkpoint and aligning the epochs takes minutes, and restyling a figure
@@ -242,12 +257,108 @@ class Results:
         # Epochs are whole; left alone, the out panel's short range gets halves.
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    def _rmse_panel(self, ax: plt.Axes, distribution: str) -> None:
+    def _pairwise(self, distribution: str) -> pd.DataFrame:
+        """
+        Every pair of COMPARED_ARMS tested on one distribution's valid RMSE,
+        with a linear mixed model that gives each seed a random intercept.
+        Every arm sees the same split for a given seed, and some splits are
+        harder than others for every arm, so the seed is a block. Each seed's
+        intercept takes out that shared difficulty before the arms are compared.
+
+        The arms are coded as cell means (no intercept), so each fixed effect is
+        an arm's mean RMSE and a pair's contrast is one row of +1/-1. The
+        contrasts go through t_test by hand: MixedLM's t_test takes fixed-effect
+        columns only, and the built-in t_test_pairwise also counts the seed
+        variance as a column, so it cannot run on MixedLM.
+        In-distribution the seed variance is close to zero, and statsmodels warns
+        that the estimate is on the boundary. That is expected, and the
+        contrasts are still valid.
+
+        Parameters
+        ----------
+        distribution : str
+            One of DISTRIBUTIONS.
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per pair, arm_a before arm_b in COMPARED_ARMS order.
+            difference is arm_a's RMSE minus arm_b's, so a negative value means
+            arm_a scores better. The p-values are Wald z tests, with p_adjusted
+            corrected for this distribution's pairs.
+        """
+        scores = self.df[(self.df["distribution"] == distribution)
+                         & self.df["arm"].isin(COMPARED_ARMS)]
+        scores = scores.assign(arm=pd.Categorical(scores["arm"], COMPARED_ARMS))
+        fit = smf.mixedlm("valid_rmse ~ 0 + arm", scores, groups=scores["seed"]).fit()
+        pairs = pd.DataFrame(combinations(COMPARED_ARMS, 2), columns=["arm_a", "arm_b"])
+        means = pd.DataFrame(np.eye(len(COMPARED_ARMS)), index=COMPARED_ARMS)
+        tests = fit.t_test(means.loc[pairs["arm_a"]].to_numpy()
+                           - means.loc[pairs["arm_b"]].to_numpy()).summary_frame()
+        return pairs.assign(
+            distribution=distribution,
+            difference=tests["coef"].to_numpy(),
+            std_err=tests["std err"].to_numpy(),
+            ci_low=tests["Conf. Int. Low"].to_numpy(),
+            ci_high=tests["Conf. Int. Upp."].to_numpy(),
+            p=tests["P>|z|"].to_numpy(),
+            p_adjusted=multipletests(tests["P>|z|"], method=P_ADJUST)[1],
+        )
+
+    def comparisons(self) -> pd.DataFrame:
+        """
+        The pairwise arm tests for every distribution. Each distribution gets
+        its own mixed model: seeds are not shared between them (each has its
+        own splitter), and out-of-distribution scores vary about ten times more,
+        so one pooled residual variance would suit neither.
+
+        Returns
+        -------
+        pd.DataFrame
+            As _pairwise(), indexed by distribution, arm_a and arm_b.
+        """
+        return pd.concat(self._pairwise(d) for d in DISTRIBUTIONS).set_index(
+            ["distribution", "arm_a", "arm_b"])
+
+    def _brackets(self, ax: plt.Axes, pairs: pd.DataFrame, top: float) -> None:
+        """
+        Put a bracket over each pair of boxes, labelled with the stars for its
+        adjusted p-value. Brackets are stacked with the shortest lowest, so a
+        bracket never cuts through a longer one above it.
+
+        Parameters
+        ----------
+        ax : plt.Axes
+            The box panel.
+        pairs : pd.DataFrame
+            One distribution's rows of comparisons(), indexed by arm_a and arm_b.
+        top : float
+            The panel's highest score, which the first bracket sits above.
+        """
+        compared = self.df.loc[self.df["arm"].isin(COMPARED_ARMS), "valid_rmse"]
+        step = BRACKET_STEP * np.ptp(compared)
+        # boxplot's default positions: 1 for the first box, 2 for the next.
+        pairs = pairs.assign(
+            left=[COMPARED_ARMS.index(a) + 1 for a, _ in pairs.index],
+            right=[COMPARED_ARMS.index(b) + 1 for _, b in pairs.index],
+            stars=pd.cut(pairs["p_adjusted"], SIGNIFICANCE_BINS,
+                         labels=SIGNIFICANCE_LABELS, include_lowest=True),
+        ).assign(span=lambda d: d["right"] - d["left"]).sort_values(["span", "left"])
+        for level, pair in enumerate(pairs.itertuples(), start=1):
+            y = top + level * step
+            ax.plot([pair.left, pair.left, pair.right, pair.right],
+                    [y - step / 4, y, y, y - step / 4], color="black", lw=1)
+            ax.text((pair.left + pair.right) / 2, y, pair.stars, ha="center",
+                    va="bottom", fontsize="small")
+
+    def _rmse_panel(self, ax: plt.Axes, distribution: str,
+                    comparisons: pd.DataFrame) -> None:
         """
         Valid RMSE per arm over the seeds on one distribution, each box in its
         arm's colour so it reads against the loss curves. Valid is the one
         split no arm's model selection read, so it is the only fair ground for
-        comparing them.
+        comparing them. Brackets above the boxes give each pair's adjusted
+        significance.
 
         Parameters
         ----------
@@ -255,23 +366,29 @@ class Results:
             Axes to draw on.
         distribution : str
             One of DISTRIBUTIONS.
+        comparisons : pd.DataFrame
+            From comparisons(), passed in so the mixed models are fitted once
+            per figure rather than once per panel.
         """
-        arms = list(ARM_COLOURS)
-        scores = self.df[self.df["distribution"] == distribution]
+        scores = self.df[(self.df["distribution"] == distribution)
+                         & self.df["arm"].isin(COMPARED_ARMS)]
         boxes = ax.boxplot(
-            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in arms],
-            tick_labels=[ARM_LABELS[arm] for arm in arms], patch_artist=True, medianprops={"color": "black"},
+            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in COMPARED_ARMS],
+            tick_labels=[ARM_LABELS[arm] for arm in COMPARED_ARMS], patch_artist=True,
+            medianprops={"color": "black"},
         )
-        for box, arm in zip(boxes["boxes"], arms):
+        for box, arm in zip(boxes["boxes"], COMPARED_ARMS):
             box.set_facecolor(ARM_COLOURS[arm])
+        self._brackets(ax, comparisons.loc[distribution], scores["valid_rmse"].max())
         ax.set(title=f"{distribution}-distribution", ylabel=f"Validation {RMSE_AXIS}")
 
     def q1(self) -> Path:
         """
         README's Question 1 figure: one row per distribution, valid RMSE boxes
-        on the left and RMSE curves on the right. Each column shares its y axis, so
-        the in/out gap -- how much of an arm's score depends on having seen the
-        scaffold series -- reads straight down it.
+        on the left, with pairwise significance brackets, and RMSE curves on the
+        right. Each column shares its y axis, so the in/out gap -- how much of an
+        arm's score depends on having seen the scaffold series -- reads straight
+        down it.
 
         Returns
         -------
@@ -279,11 +396,12 @@ class Results:
             The saved figure.
         """
         histories = self._surviving()
+        comparisons = self.comparisons()
         fig, axes = plt.subplots(len(DISTRIBUTIONS), 2, figsize=Q1_FIGSIZE,
                                  sharey="col", width_ratios=Q1_WIDTH_RATIOS,
                                  layout="constrained")
         for (box_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
-            self._rmse_panel(box_ax, distribution)
+            self._rmse_panel(box_ax, distribution, comparisons)
             self._loss_panel(curve_ax, histories, distribution)
         axes[0, 1].legend()
         FIGURE_DIR.mkdir(exist_ok=True)
@@ -697,5 +815,6 @@ if __name__ == "__main__":
     parser.add_argument("results", type=Path,
                         help="out/experiments/<target>-<mutation>.csv")
     results = Results(parser.parse_args().results)
+    print(results.comparisons())
     print(results.q1())
     print(*results.q2(), sep="\n")
