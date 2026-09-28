@@ -76,7 +76,7 @@ def test_baseline_study_writes_resumes_and_is_read_back(
     assert record["trials"] == 3
     assert record["params"].keys() == SEARCH_SPACES["baseline"].keys()
     assert experiment._params("baseline", "in") == record["params"]
-    assert experiment._baseline(splitter)["valid_rmse"] > 0
+    assert experiment._baseline(splitter)["test_rmse"] > 0
 
 
 def test_tune_keys_each_arm_separately(

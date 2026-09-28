@@ -26,8 +26,8 @@ def results_path(tmp_path: Path) -> Path:
         for seed in range(SEEDS):
             for arm, rmse in (("cluster_mean", 2.0), ("baseline", 1.5)):
                 rows.append({"arm": arm, "distribution": distribution, "seed": seed,
-                             "valid_rmse": rmse + rng.normal(0, 0.1),
-                             "valid_r2": 0.5, "run_dir": None})
+                             "test_rmse": rmse + rng.normal(0, 0.1),
+                             "test_r2": 0.5, "run_dir": None})
             for arm in ("pretrained", "finetuned"):
                 run_dir = tmp_path / f"{arm}-{distribution}-{seed}"
                 run_dir.mkdir()
@@ -38,7 +38,7 @@ def results_path(tmp_path: Path) -> Path:
                     "valid_loss": rng.uniform(1, 5, EPOCHS + 1),
                 }).to_csv(run_dir / "history.csv", index=False)
                 rows.append({"arm": arm, "distribution": distribution, "seed": seed,
-                             "valid_rmse": 1.0 + rng.normal(0, 0.1), "valid_r2": 0.7,
+                             "test_rmse": 1.0 + rng.normal(0, 0.1), "test_r2": 0.7,
                              "run_dir": str(run_dir)})
     path = tmp_path / "EGFR-wildtype.csv"
     pd.DataFrame(rows).to_csv(path, index=False)
@@ -50,9 +50,9 @@ def test_histories_are_long_and_complete(results_path: Path) -> None:
     assert list(histories.columns) == ["arm", "distribution", "seed", "epoch",
                                        "split", "rmse"]
     assert not histories["rmse"].isna().any()
-    assert set(histories["split"]) == {"train", "test", "valid"}
+    assert set(histories["split"]) == {"train", "valid", "test"}
     assert set(histories["arm"]) == {"pretrained", "finetuned"}
-    # 4 runs a seed x (EPOCHS + 1 test and valid losses each + EPOCHS train losses)
+    # 4 runs a seed x (EPOCHS + 1 valid and test losses each + EPOCHS train losses)
     assert len(histories) == 4 * SEEDS * (3 * EPOCHS + 2)
 
 
@@ -86,14 +86,14 @@ def test_comparisons_find_a_real_gap_and_not_a_null_one(tmp_path: Path) -> None:
     offsets = {"cluster_mean": 1.0, "baseline": 0.0, "pretrained": 0.2, "finetuned": 0.2}
     rows = [
         {"arm": arm, "distribution": distribution, "seed": seed,
-         "valid_rmse": 1.5 + offset + difficulty + rng.normal(0, 0.05)}
+         "test_rmse": 1.5 + offset + difficulty + rng.normal(0, 0.05)}
         for distribution in DISTRIBUTIONS
         for seed, difficulty in enumerate(rng.normal(0, 0.3, 30))
         for arm, offset in offsets.items()
     ]
     df = pd.DataFrame(rows)
-    df.loc[df["arm"] == "finetuned", "valid_rmse"] = df.loc[
-        df["arm"] == "pretrained", "valid_rmse"].to_numpy()
+    df.loc[df["arm"] == "finetuned", "test_rmse"] = df.loc[
+        df["arm"] == "pretrained", "test_rmse"].to_numpy()
     path = tmp_path / "EGFR-wildtype.csv"
     df.to_csv(path, index=False)
     comparisons = Results(path).comparisons()
@@ -118,7 +118,7 @@ def trajectories(results_path: Path) -> list[br.Trajectory]:
     runs = df[(df["arm"] == "finetuned") & (df["seed"] == 0)].set_index("distribution")
     n = 30
     molecules = pd.DataFrame({
-        "split": np.repeat(["train", "test", "valid"], n // 3),
+        "split": np.repeat(["train", "valid", "test"], n // 3),
         "labels": rng.normal(size=n),
         "cluster": rng.integers(0, 50, n),
     })

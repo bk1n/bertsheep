@@ -226,23 +226,23 @@ def test_fit_stops_early_and_keeps_the_best_epoch(
     monkeypatch: pytest.MonkeyPatch, model: Model
 ) -> None:
     """
-    With a scripted test loss, fit() stops patience epochs after the best one,
+    With a scripted valid loss, fit() stops patience epochs after the best one,
     writes one history row per epoch run, keeps the best epoch's weights in
     memory, and writes only the starting and best weights to disk.
     """
     monkeypatch.setattr(model, "num_epochs", 10)
     monkeypatch.setattr(model, "patience", 3)
-    # Early stopping and selection key off the test loader, so that is the loss
-    # worth scripting; valid's is held flat to prove it does not drive either.
+    # Early stopping and selection key off the valid loader, so that is the loss
+    # worth scripting; test's is held flat to prove it does not drive either.
     # The first loss is epoch -1's, which is scored but never selected.
-    test_losses = iter([0.5, 3.0, 2.0, 2.5, 2.6, 2.7, 1.0])
-    labels = model.valid_df["labels"].to_numpy()
+    valid_losses = iter([0.5, 3.0, 2.0, 2.5, 2.6, 2.7, 1.0])
+    labels = model.test_df["labels"].to_numpy()
     monkeypatch.setattr(model, "_train_epoch", lambda epoch: 0.0)
     monkeypatch.setattr(
         model,
         "_score",
         lambda loader: (
-            next(test_losses) if loader is model.test_loader else 9.0, labels, labels
+            next(valid_losses) if loader is model.valid_loader else 9.0, labels, labels
         ),
     )
 
@@ -256,7 +256,7 @@ def test_fit_stops_early_and_keeps_the_best_epoch(
     assert model.best_state is not None
     best = torch.load(model.checkpoint_dir / bm.BEST_CHECKPOINT)
     assert best["epoch"] == 1
-    assert best["loss"]["test"] == 2.0
+    assert best["loss"]["valid"] == 2.0
 
 
 def test_trajectory_run_checkpoints_every_epoch(
@@ -278,8 +278,8 @@ def test_fit_smoke(monkeypatch: pytest.MonkeyPatch, model: Model) -> None:
     monkeypatch.setattr(model, "num_epochs", 2)
     history = model.fit()
     assert len(history) == 3  # epoch -1 and two trained epochs
-    metrics = ["train_loss", "test_loss", "valid_loss",
-               "test_rmse", "test_r2", "valid_rmse", "valid_r2"]
+    metrics = ["train_loss", "valid_loss", "test_loss",
+               "valid_rmse", "valid_r2", "test_rmse", "test_r2"]
     assert np.isfinite(history.loc[history["epoch"] >= 0, metrics]).all(axis=None)
     assert model._checkpoint_path(-1).exists()
     assert (model.checkpoint_dir / bm.BEST_CHECKPOINT).exists()
@@ -289,8 +289,8 @@ def test_checkpoint_round_trip_restores_weights(model: Model) -> None:
     """Loading a checkpoint undoes later training and returns its epoch."""
     before = _snapshot(model.model)
     # _save_checkpoint takes its losses from the epoch's history row
-    model.history.append({"epoch": 7, "train_loss": 0.5, "test_loss": 0.5,
-                          "valid_loss": 0.5})
+    model.history.append({"epoch": 7, "train_loss": 0.5, "valid_loss": 0.5,
+                          "test_loss": 0.5})
     model._save_checkpoint(7, model.model.state_dict(), model._checkpoint_path(7))
     model._train_epoch(0)
     assert model.load_checkpoint(model._checkpoint_path(7)) == 7
@@ -300,10 +300,10 @@ def test_checkpoint_round_trip_restores_weights(model: Model) -> None:
 def test_evaluate_scores_the_best_weights_not_the_last(model: Model) -> None:
     """
     evaluate() scores the best epoch's weights even after training has moved
-    on. It reads the valid split, which is the one held out of selection.
+    on. It reads the test split, which is the one held out of selection.
     """
     model.best_epoch, model.best_state = 0, _snapshot(model.model)
-    _, preds, labels = model._score(model.valid_loader)
+    _, preds, labels = model._score(model.test_loader)
     expected = model._metrics(preds, labels)
     model._train_epoch(0)
     metrics = model.evaluate()
@@ -317,7 +317,7 @@ def test_split_frames_recovers_the_trained_splits(model: Model, frame: pd.DataFr
     back into exactly the frames the run trained, selected and scored on.
     """
     for recovered, used in zip(bm.split_frames(frame, model.model_dir),
-                               (model.train_df, model.test_df, model.valid_df)):
+                               (model.train_df, model.valid_df, model.test_df)):
         pd.testing.assert_frame_equal(recovered, used)
 
 

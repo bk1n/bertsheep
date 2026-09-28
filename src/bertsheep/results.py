@@ -61,11 +61,11 @@ ARM_COLOURS = {"cluster_mean": "lightgrey", "baseline": "grey",
 # The baseline is XGBoost on Morgan fingerprints; the last two are ChemBERTa.
 ARM_LABELS = {"cluster_mean": "Cluster mean", "baseline": "XGBoost + FPS",
               "pretrained": "Pretrained", "finetuned": "Fine-tuned"}
-# Arms scored once on valid rather than per epoch, drawn as horizontal lines.
+# Arms scored once on test rather than per epoch, drawn as horizontal lines.
 REFERENCE_ARMS = ("cluster_mean", "baseline")
-SPLIT_LABELS = {"train": "train", "test": "test", "valid": "validation"}
-# Dotted for valid, so the references -- also valid scores -- take dash-dot.
-SPLIT_STYLES = {"train": "--", "test": "-", "valid": ":"}
+SPLIT_LABELS = {"train": "train", "valid": "validation", "test": "test"}
+# Dotted for test, so the references -- also test scores -- take dash-dot.
+SPLIT_STYLES = {"train": "--", "valid": "-", "test": ":"}
 # Every score is RMSE, in the label's own units (see eda.LABEL_AXIS), so the
 # boxes and curves read on one scale. The model trains on MSE; history.csv's
 # losses are split-wide MSE, so their square root is that split's RMSE.
@@ -87,7 +87,7 @@ COMPARED_ARMS = ("cluster_mean", "baseline", "pretrained", "finetuned")
 P_ADJUST = "holm"
 SIGNIFICANCE_BINS = [0, 0.001, 0.01, 0.05, 1]
 SIGNIFICANCE_LABELS = ["***", "**", "*", "ns"]
-# Gap between stacked brackets, as a share of the valid RMSE's range over both
+# Gap between stacked brackets, as a share of the test RMSE's range over both
 # distributions: the box rows share a y axis, so one step suits both.
 BRACKET_STEP = 0.08
 
@@ -103,7 +103,7 @@ LAYER_LABELS = {0: "Embedding layer", 1: "Encoder layer 1",
                 2: "Encoder layer 2", 3: "Encoder layer 3"}
 # Share of each split's molecules embedded and aligned. Aligned UMAP's cost
 # grows with molecules x epochs, ~1.5 h a panel at the full ~8.8k; taken per
-# split so the train/test/valid proportions are the run's own.
+# split so the train/valid/test proportions are the run's own.
 SUBSAMPLE = 0.2
 SUBSAMPLE_SEED = 0
 # Transformer embeddings differ more in direction than in length.
@@ -117,11 +117,11 @@ GIF_FPS = 10
 GIF_DPI = 100  # the GIF is embedded in README.md, so kept to a few MB
 GIF_FIGSIZE = (17, 8)
 GIF_WIDTH_RATIOS = (1, 1, 1, 1.2)
-# Valid molecules were never trained on, so they are drawn larger and opaque
-# over the faint train and test molecules: generalisation reads as the held-out
+# Test molecules were never trained on, so they are drawn larger and opaque
+# over the faint train and valid molecules: generalisation reads as the held-out
 # points landing among training points of their colour.
-VALID_POINT_SIZE = 10
-VALID_ALPHA = 0.8
+TEST_POINT_SIZE = 10
+TEST_ALPHA = 0.8
 # Filmstrip columns besides the best and last epochs, as shares of the run.
 FILMSTRIP_FRACTIONS = (0, 0.25, 0.5)
 FILMSTRIP_FIGSIZE = (14, 16)
@@ -151,7 +151,7 @@ class Trajectory(NamedTuple):
     history : pd.DataFrame
         The run's history.csv, one row per epoch from -1.
     best_epoch : int
-        The epoch the run selected on test loss.
+        The epoch the run selected on valid loss.
     """
 
     distribution: str
@@ -179,7 +179,7 @@ class Results:
 
     def _histories(self) -> pd.DataFrame:
         """
-        Every transformer run's per-epoch train, test and valid RMSE, one row
+        Every transformer run's per-epoch train, valid and test RMSE, one row
         per (run, epoch, split). Driven off the results file's run_dir rather than a
         glob of out/models/, which also holds tuning-trial and legacy runs; the
         baseline has no run_dir and no epochs, so it drops out here.
@@ -188,7 +188,7 @@ class Results:
         -------
         pd.DataFrame
             Columns arm, distribution, seed, epoch, split and rmse. Epoch -1 has
-            test and valid scores only, since nothing was trained before it.
+            valid and test scores only, since nothing was trained before it.
         """
         runs = self.df.dropna(subset="run_dir")
         histories = pd.concat(
@@ -198,7 +198,7 @@ class Results:
         )
         return histories.melt(
             id_vars=["arm", "distribution", "seed", "epoch"],
-            value_vars=["train_loss", "test_loss", "valid_loss"], var_name="split",
+            value_vars=["train_loss", "valid_loss", "test_loss"], var_name="split",
             value_name="rmse",
         ).dropna().assign(split=lambda d: d["split"].str.removesuffix("_loss"),
                           rmse=lambda d: np.sqrt(d["rmse"]))
@@ -224,11 +224,11 @@ class Results:
     def _loss_panel(self, ax: plt.Axes, histories: pd.DataFrame,
                     distribution: str) -> None:
         """
-        Train, test and valid RMSE per epoch for the two transformer arms on one
+        Train, valid and test RMSE per epoch for the two transformer arms on one
         distribution: every seed's value as a point, with a LOESS trend per arm
         and split. The reference arms have no epochs -- the baseline counts
         boosting rounds, the cluster mean fits nothing -- so each is a
-        horizontal line at its mean valid RMSE rather than a curve.
+        horizontal line at its mean test RMSE rather than a curve.
 
         Parameters
         ----------
@@ -250,8 +250,8 @@ class Results:
         for arm in REFERENCE_ARMS:
             scores = self.df[(self.df["arm"] == arm)
                              & (self.df["distribution"] == distribution)]
-            ax.axhline(scores["valid_rmse"].mean(), color=ARM_COLOURS[arm],
-                       ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['valid']}")
+            ax.axhline(scores["test_rmse"].mean(), color=ARM_COLOURS[arm],
+                       ls="-.", label=f"{ARM_LABELS[arm]} {SPLIT_LABELS['test']}")
         ax.set(title=f"{distribution}-distribution", xlabel="Epoch",
                ylabel=RMSE_AXIS)
         # Epochs are whole; left alone, the out panel's short range gets halves.
@@ -259,7 +259,7 @@ class Results:
 
     def _pairwise(self, distribution: str) -> pd.DataFrame:
         """
-        Every pair of COMPARED_ARMS tested on one distribution's valid RMSE,
+        Every pair of COMPARED_ARMS tested on one distribution's test RMSE,
         with a linear mixed model that gives each seed a random intercept.
         Every arm sees the same split for a given seed, and some splits are
         harder than others for every arm, so the seed is a block. Each seed's
@@ -290,7 +290,7 @@ class Results:
         scores = self.df[(self.df["distribution"] == distribution)
                          & self.df["arm"].isin(COMPARED_ARMS)]
         scores = scores.assign(arm=pd.Categorical(scores["arm"], COMPARED_ARMS))
-        fit = smf.mixedlm("valid_rmse ~ 0 + arm", scores, groups=scores["seed"]).fit()
+        fit = smf.mixedlm("test_rmse ~ 0 + arm", scores, groups=scores["seed"]).fit()
         pairs = pd.DataFrame(combinations(COMPARED_ARMS, 2), columns=["arm_a", "arm_b"])
         means = pd.DataFrame(np.eye(len(COMPARED_ARMS)), index=COMPARED_ARMS)
         tests = fit.t_test(means.loc[pairs["arm_a"]].to_numpy()
@@ -335,7 +335,7 @@ class Results:
         top : float
             The panel's highest score, which the first bracket sits above.
         """
-        compared = self.df.loc[self.df["arm"].isin(COMPARED_ARMS), "valid_rmse"]
+        compared = self.df.loc[self.df["arm"].isin(COMPARED_ARMS), "test_rmse"]
         step = BRACKET_STEP * np.ptp(compared)
         # boxplot's default positions: 1 for the first box, 2 for the next.
         pairs = pairs.assign(
@@ -354,8 +354,8 @@ class Results:
     def _rmse_panel(self, ax: plt.Axes, distribution: str,
                     comparisons: pd.DataFrame) -> None:
         """
-        Valid RMSE per arm over the seeds on one distribution, each box in its
-        arm's colour so it reads against the loss curves. Valid is the one
+        Test RMSE per arm over the seeds on one distribution, each box in its
+        arm's colour so it reads against the loss curves. Test is the one
         split no arm's model selection read, so it is the only fair ground for
         comparing them. Brackets above the boxes give each pair's adjusted
         significance.
@@ -373,22 +373,21 @@ class Results:
         scores = self.df[(self.df["distribution"] == distribution)
                          & self.df["arm"].isin(COMPARED_ARMS)]
         boxes = ax.boxplot(
-            [scores.loc[scores["arm"] == arm, "valid_rmse"] for arm in COMPARED_ARMS],
+            [scores.loc[scores["arm"] == arm, "test_rmse"] for arm in COMPARED_ARMS],
             tick_labels=[ARM_LABELS[arm] for arm in COMPARED_ARMS], patch_artist=True,
             medianprops={"color": "black"},
         )
         for box, arm in zip(boxes["boxes"], COMPARED_ARMS):
             box.set_facecolor(ARM_COLOURS[arm])
-        self._brackets(ax, comparisons.loc[distribution], scores["valid_rmse"].max())
-        ax.set(title=f"{distribution}-distribution", ylabel=f"Validation {RMSE_AXIS}")
+        self._brackets(ax, comparisons.loc[distribution], scores["test_rmse"].max())
+        ax.set(title=f"{distribution}-distribution", ylabel=f"Test {RMSE_AXIS}")
 
     def q1(self) -> Path:
         """
-        README's Question 1 figure: one row per distribution, valid RMSE boxes
-        on the left, with pairwise significance brackets, and RMSE curves on the
-        right. Each column shares its y axis, so the in/out gap -- how much of an
-        arm's score depends on having seen the scaffold series -- reads straight
-        down it.
+        README's Question 1 figure: one row per distribution, test RMSE boxes
+        on the left and RMSE curves on the right. Each column shares its y axis, so
+        the in/out gap -- how much of an arm's score depends on having seen the
+        scaffold series -- reads straight down it.
 
         Returns
         -------
@@ -595,28 +594,28 @@ class Results:
         Callable[[float], None]
             Moves the points to a (fractional) epoch.
         """
-        valid = (trajectory.molecules["split"] == "valid").to_numpy()
-        context = ax.scatter(*trajectory.coords[layer, 0, ~valid].T, s=POINT_SIZE,
-                             c=colours[~valid], alpha=POINT_ALPHA, linewidths=0)
-        held_out = ax.scatter(*trajectory.coords[layer, 0, valid].T,
-                              s=VALID_POINT_SIZE, c=colours[valid],
-                              alpha=VALID_ALPHA, linewidths=0)
+        test = (trajectory.molecules["split"] == "test").to_numpy()
+        context = ax.scatter(*trajectory.coords[layer, 0, ~test].T, s=POINT_SIZE,
+                             c=colours[~test], alpha=POINT_ALPHA, linewidths=0)
+        held_out = ax.scatter(*trajectory.coords[layer, 0, test].T,
+                              s=TEST_POINT_SIZE, c=colours[test],
+                              alpha=TEST_ALPHA, linewidths=0)
         ax.update_datalim(trajectory.coords[layer].reshape(-1, 2))
         ax.autoscale_view()
         ax.set(xticks=[], yticks=[])
 
         def move(epoch: float) -> None:
             coords = self._at(trajectory, layer, epoch)
-            context.set_offsets(coords[~valid])
-            held_out.set_offsets(coords[valid])
+            context.set_offsets(coords[~test])
+            held_out.set_offsets(coords[test])
 
         return move
 
     def _history_panel(self, ax: plt.Axes,
                        trajectory: Trajectory) -> Callable[[float], None]:
         """
-        The run's train, test and valid RMSE, styled as in q1(), with the
-        selected epoch starred on the test curve it was selected on. A cursor
+        The run's train, valid and test RMSE, styled as in q1(), with the
+        selected epoch starred on the valid curve it was selected on. A cursor
         tracks the frame's epoch, so each frame of the latent space can be read
         against where training was.
 
@@ -637,7 +636,7 @@ class Results:
             ax.plot(history["epoch"], np.sqrt(history[f"{split}_loss"]),
                     color=ARM_COLOURS["finetuned"], ls=SPLIT_STYLES[split],
                     label=label)
-        best = np.sqrt(history.set_index("epoch").loc[trajectory.best_epoch, "test_loss"])
+        best = np.sqrt(history.set_index("epoch").loc[trajectory.best_epoch, "valid_loss"])
         ax.plot(trajectory.best_epoch, best, "*", color="black", ms=10,
                 label="selected epoch")
         ax.set(xlabel="Epoch", ylabel=RMSE_AXIS)
@@ -700,7 +699,7 @@ class Results:
                          label=LABEL_AXIS, extend="both", shrink=0.8)
         fig.suptitle(f"ChemBERTa latent space over fine-tuning (seed {GIF_SEED}), "
                      f"coloured by {COLOURINGS[colour]}; large points are the "
-                     f"validation set")
+                     f"test set")
 
     def q2_gif(self, colour: str = "label") -> Path:
         """

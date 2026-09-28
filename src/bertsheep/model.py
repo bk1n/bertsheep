@@ -25,11 +25,11 @@ MODEL_DIR = Path("out/models")
 # epoch of every run would be ~3 GB a run, so the full trajectory is kept only
 # for the runs a latent-space animation is drawn from (see `trajectory`).
 INIT_CHECKPOINT = "init.pt"  # epoch -1: the weights fine-tuning starts from
-BEST_CHECKPOINT = "best.pt"  # the epoch fit() selected on test loss
+BEST_CHECKPOINT = "best.pt"  # the epoch fit() selected on valid loss
 EPOCH_CHECKPOINT = "epoch{:03d}.pt"
 CONFIG = "config.json"
 SPLITS = "splits.parquet"
-SPLIT_NAMES = ("train", "test", "valid")  # the order Splitters.split() deals in
+SPLIT_NAMES = ("train", "valid", "test")  # the order Splitters.split() deals in
 HISTORY = "history.csv"
 
 # Tokeniser truncation length. Data.MAX_SMILES_LENGTH caps SMILES at 128
@@ -40,7 +40,7 @@ EMBEDDING_BATCH_SIZE = 256  # inference only, so larger than training fits
 MAX_GRAD_NORM = 1.0
 NO_DECAY = ("bias", "LayerNorm.weight")
 
-MIN_DELTA = 0.0  # improvement in test loss that resets early stopping
+MIN_DELTA = 0.0  # improvement in valid loss that resets early stopping
 LOG_EVERY = 5  # batches between training-loss lines
 
 # Default run seed. A replicate is a new seed here as well as on the splitter:
@@ -133,7 +133,7 @@ def split_frames(
     df: pd.DataFrame, model_dir: Path
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    Rebuild a run's train, test and valid frames from the positional indices
+    Rebuild a run's train, valid and test frames from the positional indices
     in its splits.parquet. A run stores indices rather than frames so the
     preprocessed data is not copied into every directory of the grid; the
     frames, and predictions for any split at any epoch via a checkpoint
@@ -155,13 +155,13 @@ def split_frames(
     Returns
     -------
     tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
-        Train, test and valid frames, rows in the order the splitter dealt them.
+        Train, valid and test frames, rows in the order the splitter dealt them.
     """
     splits = pd.read_parquet(model_dir / SPLITS)
-    train, test, valid = (
+    train, valid, test = (
         df.iloc[splits.loc[splits["split"] == name, "row"]] for name in SPLIT_NAMES
     )
-    return train, test, valid
+    return train, valid, test
 
 
 class Model():
@@ -228,7 +228,7 @@ class Model():
         which is a different overfitting regime from a 17k-row downstream fit,
         so it is worth searching rather than inheriting.
     patience : int
-        Epochs without test-loss improvement before early stopping.
+        Epochs without valid-loss improvement before early stopping.
     checkpoint : bool
         Write the starting and best weights (init.pt, best.pt). A
         hyperparameter search wants this off: the weights are ~40 MB a file
@@ -303,11 +303,11 @@ class Model():
             self.model.roberta.requires_grad_(False)
 
         self._save_run_record()
-        self.train_df, self.test_df, self.valid_df = split_frames(df, self.model_dir)
+        self.train_df, self.valid_df, self.test_df = split_frames(df, self.model_dir)
         self._init_head_bias()
         self.train_loader = self._dataloader(self.train_df, shuffle=True)
-        self.test_loader = self._dataloader(self.test_df, shuffle=False)
         self.valid_loader = self._dataloader(self.valid_df, shuffle=False)
+        self.test_loader = self._dataloader(self.test_df, shuffle=False)
 
         self.loss_fn = LOSS_FN()
         self.optimiser = torch.optim.AdamW(self._parameter_groups(), lr=self.lr)
@@ -441,7 +441,7 @@ class Model():
             "split_method": self.splitter.method,
             "distribution": self.splitter.distribution,
             "train_size": self.splitter.train_size,
-            "test_size": self.splitter.test_size,
+            "valid_size": self.splitter.valid_size,
             "split_seed": self.splitter.seed,
             "min_cluster_size": self.splitter.min_cluster_size,
             "data_path": self.source["data_path"],
@@ -644,7 +644,7 @@ class Model():
         row = next(r for r in self.history if r["epoch"] == epoch)
         torch.save({
             "epoch": epoch,
-            "loss": {split: row[f"{split}_loss"] for split in ("train", "test", "valid")},
+            "loss": {split: row[f"{split}_loss"] for split in SPLIT_NAMES},
             "model": state,
         }, path)
 
@@ -683,7 +683,7 @@ class Model():
 
     def _record_epoch(self, epoch: int, train_loss: float, start: float) -> float:
         """
-        Score test and valid, then log the epoch: a history row and a progress
+        Score valid and test, then log the epoch: a history row and a progress
         line. history.csv is rewritten every epoch so a run that crashes or is
         interrupted still leaves a history alongside its checkpoints.
 
@@ -701,34 +701,34 @@ class Model():
         Returns
         -------
         float
-            Test loss, which drives model selection and early stopping.
+            Valid loss, which drives model selection and early stopping.
         """
-        test_loss, test_preds, test_labels = self._score(self.test_loader)
         valid_loss, valid_preds, valid_labels = self._score(self.valid_loader)
-        test_metrics = self._metrics(test_preds, test_labels)
+        test_loss, test_preds, test_labels = self._score(self.test_loader)
         valid_metrics = self._metrics(valid_preds, valid_labels)
+        test_metrics = self._metrics(test_preds, test_labels)
         elapsed = time.time() - start
         # Both metric dicts carry the same keys, so they are prefixed
         # rather than merged -- one column per split, not the last one in.
         self.history.append({
-            "epoch": epoch, "train_loss": train_loss, "test_loss": test_loss,
-            "valid_loss": valid_loss, "lr": self.scheduler.get_last_lr()[0],
+            "epoch": epoch, "train_loss": train_loss, "valid_loss": valid_loss,
+            "test_loss": test_loss, "lr": self.scheduler.get_last_lr()[0],
             "seconds": elapsed,
-            **{f"test_{k}": v for k, v in test_metrics.items()},
             **{f"valid_{k}": v for k, v in valid_metrics.items()},
+            **{f"test_{k}": v for k, v in test_metrics.items()},
         })
         pd.DataFrame(self.history).to_csv(self.model_dir / HISTORY, index=False)
         print(f"-- Epoch: {epoch} -- Train: {train_loss:.4f} "
-              f"-- Test: {test_loss:.4f} (RMSE {test_metrics['rmse']:.3f}) "
               f"-- Valid: {valid_loss:.4f} (RMSE {valid_metrics['rmse']:.3f}) "
+              f"-- Test: {test_loss:.4f} (RMSE {test_metrics['rmse']:.3f}) "
               f"-- {elapsed:.1f}s")
-        return test_loss
+        return valid_loss
 
     def fit(self, callback: Callable[[int, float], None] | None = None
             ) -> pd.DataFrame:
         """
-        Trains until test loss stops improving -- test is the selection set
-        here and valid is held back for evaluate(). Named fit() rather than
+        Trains until valid loss stops improving -- valid is the selection set
+        here and test is held back for evaluate(). Named fit() rather than
         train() so it doesn't shadow nn.Module.train(), which sets dropout mode.
 
         The starting weights are scored and checkpointed as epoch -1 first, so
@@ -743,7 +743,7 @@ class Model():
         Parameters
         ----------
         callback : Callable[[int, float], None] | None
-            Called with the epoch and its test loss after each training epoch,
+            Called with the epoch and its valid loss after each training epoch,
             for a hyperparameter search to watch a fit in progress. Raising
             from it abandons the fit, which is how a search abandons a trial
             that is already trailing; the history written so far survives on
@@ -770,17 +770,17 @@ class Model():
         for epoch in range(self.num_epochs):
             start = time.time()
             train_loss = self._train_epoch(epoch)
-            test_loss = self._record_epoch(epoch, train_loss, start)
+            valid_loss = self._record_epoch(epoch, train_loss, start)
 
-            if test_loss < best - MIN_DELTA:
-                best, stale, self.best_epoch = test_loss, 0, epoch
+            if valid_loss < best - MIN_DELTA:
+                best, stale, self.best_epoch = valid_loss, 0, epoch
                 self.best_state = {k: v.detach().cpu().clone()
                                    for k, v in self.model.state_dict().items()}
             else:
                 stale += 1
             self._checkpoint(epoch)
             if callback is not None:
-                callback(epoch, test_loss)
+                callback(epoch, valid_loss)
             if stale >= self.patience:
                 print(f"-- Early stop: no improvement on {best:.4f} in {self.patience} epochs")
                 break
@@ -791,7 +791,7 @@ class Model():
 
     def evaluate(self) -> dict[str, float]:
         """
-        Final read of the held-out valid split, from the best epoch's
+        Final read of the held-out test split, from the best epoch's
         weights rather than the last epoch's. Kept out of fit() because it
         should be run once, after any hyperparameter search is finished --
         calling it inside the loop is how the legacy code spent its held-out
@@ -800,14 +800,14 @@ class Model():
         Returns
         -------
         dict[str, float]
-            RMSE and R2 on the valid split. Predictions are not saved; any
+            RMSE and R2 on the test split. Predictions are not saved; any
             split at any epoch is recovered by a checkpoint forward pass over
             split_frames().
         """
         self.model.load_state_dict(self.best_state)
-        loss, preds, labels = self._score(self.valid_loader)
+        loss, preds, labels = self._score(self.test_loader)
         metrics = self._metrics(preds, labels)
-        print(f"-- Valid (weights from epoch {self.best_epoch}) -- Loss: {loss:.4f} "
+        print(f"-- Test (weights from epoch {self.best_epoch}) -- Loss: {loss:.4f} "
               f"-- RMSE: {metrics['rmse']:.3f}")
         return metrics
 
