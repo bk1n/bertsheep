@@ -1,4 +1,6 @@
 # bertsheep
+[![tests](https://github.com/bk1n/bertsheep/actions/workflows/tests.yml/badge.svg)](https://github.com/bk1n/bertsheep/actions/workflows/tests.yml)
+
 Bidirectional encoder representations from transformers (BERT) for binding affinity (ba 🐑) prediction.
 Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on [binding affinity](https://www.bindingdb.org/) of compounds to a single target (EGFR) and evaluates generalisation performance. 
 

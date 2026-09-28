@@ -1,0 +1,18 @@
+name: tests
+
+on: push
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      # --locked fails the run if uv.lock is stale against pyproject.toml. This
+      # installs the cu126 torch the lockfile pins; it runs fine on the CPU-only
+      # runner, and keeps CI on the same environment as a local run.
+      - run: uv sync --locked
+      # The model tests skip when ChemBERTa is not in the Hugging Face cache, and
+      # conftest.py forces the Hub offline, so fetch it here or they never run.
+      - run: uv run hf download DeepChem/ChemBERTa-10M-MTR
+      - run: uv run pytest

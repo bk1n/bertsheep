@@ -27,7 +27,7 @@ uv add <pkg>                 # add a dependency (updates pyproject.toml + uv.loc
 ./fetch.sh                   # rsync the BindingDB dump from Windows into ./data
 ```
 
-Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. There is no linter config. `bertsheep` (`experiment.main`) is the one entry point for a run; the `__main__` blocks in `eda.py`, `model.py` and `benchmark.py` are legacy and slated for removal. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
+Tests live in `tests/` (`uv run pytest`); the model tests need ChemBERTa in the local Hugging Face cache and skip otherwise. `.github/workflows/tests.yml` runs the whole suite on every push, downloading ChemBERTa first so the model tests run too (on CPU). There is no linter config. `bertsheep` (`experiment.main`) is the one entry point for a run; the `__main__` blocks in `eda.py`, `model.py` and `benchmark.py` are legacy and slated for removal. `ipykernel` is a dependency: exploratory work is expected to happen in a notebook/REPL against the installed package.
 
 Typical interactive use for exploration:
 
