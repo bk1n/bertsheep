@@ -1,39 +1,19 @@
 # bertsheep
 Bi-directional encoder representations from transformers (BERT) for binding affinity (ba 🐑) prediction.
+Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on [binding affinity](https://www.bindingdb.org/) of compounds to a single target (EGFR) and evaluates generalisation performance. 
 
-Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/2010.09885)) on binding affinity of compounds to a single target and evaluates generalisation performance.
+Part of my work at Accenture Labs, refactored with Claude Code.
 
-Part of my work at Accenture Labs.
-
-We are interested in the most profiled kinase target in [bindingDB](https://www.bindingdb.org/): EGFR.
-
-## Question 1
-
-> "Does fine-tuning improve binding affinity prediction to targets?"
-
-1. Evaluate in-distribution performance of models.\
-    The performance delta shows us whether the model is simply mapping scaffolds -> binding affinity, or actually learning features within scaffolds that predict binding affinity.
-
-2. Evaluate out-of-distribution performance of models.\
-    The performance delta shows us whether the model is learning features that generalise to different scaffolds.
-
-## Question 2
-
-> "How does fine-tuning alter the models latent space during training?"
-
-Hypothesis: if the model is simply re-learning rough scaffolds, then fine-tuning will not alter the layers substantially.
-
-How do the **embedding** layers differ between pre-trained and fine-tuned models?
-
-### Question 2.1
-
-How do fine-tuning methods (e.g. reinit_n and LLRD) affect the embedding layers?\
-Future focus (if we have time to implement)
+## Running
+Run the tests: `uv run pytest`
+Train the models: `uv run bertsheep EGFR`
+Visualise the results: `uv run python -m bertsheep.results <path>`
 
 ## Setup
+### Data
+Download and unzip the `BindingDB_All_202609_tsv` from bindingDB into `data/` -> `data/BindingDB_All_202609_tsv/BindingDB_All.tsv`
 
 ### Model
-
 Model: [DeepChem/ChemBERTa-10M-MTR](https://huggingface.co/DeepChem/ChemBERTa-10M-MTR)
 
 Pre-trained: frozen model + trained regression head
@@ -41,65 +21,70 @@ Fine-tuned: unfrozen model + trained regression head
 
 ### Splitting Strategies
 
-For both tests, we split compounds in two ways:
-1. Bemis-Murcko scaffolds (less stringent)
-2. Butina-split clusters (more stringent)
-
-See [here](https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html#scaffoldsplitter) for more detail.
-
-A third strategy, fingerprint splitting, was specified and then dropped. The
-greedy Tanimoto deal is deterministic: one set of molecules gives one split,
-whatever the seed. Its 30 repeats would therefore have resampled the model and
-not the chemistry held out, so its spread would have measured something
-different from the other two strategies' while sitting in the same figure
-beside them. Dropping it also returns a third of the run budget, which is the
-binding constraint on a 4060. Butina clustering already covers holding out
-whole regions of chemical space.
+Compounds are split into Butina clusters (a relatively stringent clustering method).
 
 ### Cross-validation
 
-Due to computational limitations (this is trained locally on an RTX 4060), we run Optuna w/ TPESampler once, on the first seed's split, optimising hyperparameters on train + test data with the evaluation set held out. The remaining seeds reuse those hyperparameters.
+!!! Not cross validation really
 
-In-distribution: for both Bemis-Murcko and Butina splits, we use stratified splitting by "scaffolds" to ensure equal representation of scaffolds.
+Trained locally on an RTX 4060 with Optuna + TPESampler; hyperparameters are found on seed zero and shared across runs (due to computational limitations).
 
-Out-of-distribution: for both, group shuffled splits ensure some scaffolds are held-out.
+In-distribution: for Butina splits, we use stratified splitting by clusters to ensure equal representation of clusters.
+Out-of-distribution: group shuffled splits ensure some clusters are held-out.
 
-Groups smaller than a minimum size are dropped from every split: a cluster with one member cannot be represented on both sides of an in-distribution split, and is not a series an out-of-distribution one can learn from.
+### Training
 
-All experiments are repeated 30 times. A repeat is a new seed on both the splitter and the model, so head initialisation and batch order are resampled alongside the chemistry held out.
+Trained locally on an RTX 4060. Made possible with approx. 2x speedup with autocast bf16.
 
-## Figures
-### Question 1
-Multi-panel:\
-(a) boxplot: x: model (baseline, pre-trained, fine-tuned), y: R2, color: in vs out-of-distribution\
-(b) R2-curve for fine-tuned model: x: epoch, y: R2, color: in vs out-of-distribution
+## Results
 
-## Question 2
-Multi-panel:\
-(a) line-graph: x: embedding layer, y: RSA, color: in vs out-of-distribution\
-(b) line-graph: x: attention layer, y: RSA, color: in vs out-of-distribution
+EGFR wild type, Butina clusters (minimum size 10), 30 seeds per arm and distribution. A seed resamples both the split and the model, and every arm sees the same split for a given seed, so arms are compared seed by seed.
 
-Multi-panel GIF (2x4), one per colouring (affinity, Butina cluster):\
-x: embedding layer, middle encoder layer, last encoder layer, loss curve\
-y: in-distribution, out-of-distribution
+### Optimal hyperparameters per-arm
 
-> GIF creation:
-> 1. Embed a fifth of each split's molecules with each fine-tuning epoch's checkpoint, from the pretrained weights on, for the `GIF_SEED` runs. Aligned UMAP's cost grows with molecules x epochs, and the full ~8.8k would take ~1.5 h per panel.
-> 2. Align each layer's epochs w/ aligned UMAP, so a molecule moves only as far as fine-tuning moved it.
-> 3. Interpolate between epochs and convert to GIF; the loss column's cursor shows where training is.
->
-> Validation molecules are drawn large over the faint train and test molecules. Attention maps are not drawn: each is a variable-size matrix per molecule, and each encoder layer's hidden state is already its attention block's output.
+Tuned with Optuna (TPE) on seed 0's split, scored on test, validation never read. Trials: XGBoost 100, pretrained 50, fine-tuned 50.
 
-Filmstrip (6x5), the GIF's key frames for print:\
-x: pretrained, 25%, 50%, selected epoch, last epoch\
-y: distribution x layer
+| Arm | Distribution | lr | weight decay | warmup | dropout |
+|---|---|---|---|---|---|
+| Pretrained | in | 7.6e-3 | 0.018 | 0.042 | 0.097 |
+| Pretrained | out | 9.3e-3 | 0.131 | 0.074 | 0.138 |
+| Fine-tuned | in | 2.4e-4 | 0.150 | 0.054 | 0.050 |
+| Fine-tuned | out | 4.9e-4 | 0.224 | 0.026 | 0.065 |
 
-### Results Interpretation
+| XGBoost | max depth | learning rate | subsample | colsample | min child weight | L2 |
+|---|---|---|---|---|---|---|
+| in | 10 | 0.015 | 0.96 | 0.25 | 1.1 | 1.23 |
+| out | 10 | 0.070 | 0.92 | 0.85 | 6.6 | 0.005 |
 
-Training compounds move with validation compounds.
-In both in-distribution + out-of-distribution, training error is low. 
-We can see from in-distribution UMAP, that (a) the latent space is reorganised around affinity, and (b) the validation molecules move in latent space with their training molecules. In out-of-distribution, we can see that (a) the latent space is **still** reorganised around affinity, but (b) training molecules are moving a lot whilst the validation molecules are remaining in similar locations. 
-As the out-of-distribution clusters had no training molecules, nothing is causing these to move in affinity space, suggesting the model is struggling to generalise to out-of-distribution compounds.
 
-This also shows us that the models are capable of predicting in-distribution affinity.
-Question: can the model predict in-distribution affinity better than simple cluster-mean? If so, it suggests the model is learning more than basic Butina clusters, learning something about chemical space that generalises across in-distribution compounds. If no, the model is simply relearning Butina-like clusters in the data and mapping those to affinity.
+### Model performance
+
+![Question 1: validation R² per arm (left) and loss curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
+
+Means over 30 seeds; RMSE in log10 units.
+
+**ChemBERTa learns more than cluster identity.** 
+In-distribution performance of all models was elevated compared to the cluster mean, suggesting the models are successfully learning features of the compounds that predict binding to EGFR. 
+
+**XGBoost on fingerprints beats pre-trained and fine-tuned ChemBERTa.** 
+In-distribution and out-of-distribution performance is higher for XGBoost trained on fingerprints versus ChemBERTa trained on SMILES. Other authors have observed [this](https://www.nature.com/articles/s41467-023-41948-6) and many reasons for weaker performance exist, including negative transfer and limited dataset size.
+
+**Fine-tuning exhibits similar performance to pre-trained model.**
+Fine-tuning shows similar performance to the pre-trained model with a small advantage in-distribution (fine-tuned beats pre-trained 25/30 seeds). 
+This is potentially due to the MTR pre-training method, which regresses ~200 RDKit descriptors, already learning affinity-relevant descriptors in the frozen latent space.
+
+**Out-of-distribution, which clusters are held out matters more than which model is used.** The seeds are strongly correlated across arms. Seed 24 is the worst seed for both XGBoost (−0.06) and fine-tuning (−0.07), and seed 17 is the best for XGBoost, pretrained and fine-tuned (0.57, 0.47, 0.50). The spread across seeds (SD ≈ 0.13 R²) is about twice the gap between the best and worst model. The validation set also ranges from 708 to 2,250 molecules because clusters vary in size. A single held-out split would give a misleading ranking of these models.
+
+Wide performance range out-of-distribution suggests that some clusters may be easier to predict than others; the performance tracks across arms by seed (i.e. some seeds are easier to predict than others out-of-distribution).
+
+### Latent space with fine-tuning
+
+![Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by affinity](figures/EGFR-wildtype_q2_label.gif)
+![Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by cluster](figures/EGFR-wildtype_q2_cluster.gif)
+
+- **The embedding layer barely moves.** In both distributions its layout is nearly the same at the pretrained weights and at the last epoch.
+Fine-tuning changes the encoder layers, not the token embeddings.
+- **The last encoder layer reorganises around affinity.** In-distribution, weak binders (dark) collect on one side of encoder layer 3 and potent ones (yellow/orange) on the other by the selected epoch. The same starts to happen out-of-distribution.
+- **In-distribution, validation molecules move with their training neighbours.** In the above figures, clusters are coloured if they are part of the validation set. During in-distribution training, these clusters are associated with training compounds and so the valdiation clusters are carried along into the affinity-sorted layout.
+- **Out-of-distribution, the training molecules rearrange while the held-out molecules stay close to where they started.** 
+During out-of-distribution training, the training molecules are still re-organised in the last layer to an affinity-sorted layout. In contrast, the validation clusters remain relatively static, moving little and not following the training molecules. The model is not able to learn generalisable features that transfer to these clusters. This highlights the poor performance on out-of-distribution compounds and weak generalisation.

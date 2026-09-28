@@ -1,7 +1,7 @@
 [project]
 name = "bertsheep"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fine-tuning and evaluation of ChemBERTa for binding affinity prediction."
 readme = "README.md"
 authors = [
     { name = "Ben King", email = "75484578+bk1n@users.noreply.github.com" }

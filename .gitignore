@@ -1,6 +1,5 @@
 data/
 out/
-figures/
 __pycache__
 .env
 .claude/worktrees/
