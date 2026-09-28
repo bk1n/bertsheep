@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0
       # --locked fails the run if uv.lock is stale against pyproject.toml. This
       # installs the cu126 torch the lockfile pins; it runs fine on the CPU-only
       # runner, and keeps CI on the same environment as a local run.
