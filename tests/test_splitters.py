@@ -17,7 +17,7 @@ CLUSTER_SIZE = len(ALKYLS)
 ROWS = np.arange(len(SMILES))
 
 TRAIN_SIZE = 0.7
-TEST_SIZE = 0.15
+VALID_SIZE = 0.15
 # A cluster split can only land on the size asked for to within a cluster:
 # 'out' moves whole clusters, and 'in' quantises the ratio into folds.
 CLUSTER_TOLERANCE = CLUSTER_SIZE / len(SMILES)
@@ -41,7 +41,7 @@ def splitter(method: str, distribution: str = "in", seed: int = 11) -> Splitters
     Splitters
         Splitters ready to split the fixture molecules.
     """
-    return Splitters(SMILES, method, distribution, TRAIN_SIZE, TEST_SIZE, seed)
+    return Splitters(SMILES, method, distribution, TRAIN_SIZE, VALID_SIZE, seed)
 
 
 @pytest.fixture
@@ -137,27 +137,27 @@ def test_three_way_split_is_a_partition(method: str, distribution: str) -> None:
 
 
 def test_three_way_split_sizes(method: str, distribution: str) -> None:
-    """Train, test and valid come out the sizes asked for, to within a cluster."""
-    train, test, valid = splitter(method, distribution).split()
-    sizes = [len(split) / len(SMILES) for split in (train, test, valid)]
-    expected = [TRAIN_SIZE, TEST_SIZE, 1 - TRAIN_SIZE - TEST_SIZE]
+    """Train, valid and test come out the sizes asked for, to within a cluster."""
+    train, valid, test = splitter(method, distribution).split()
+    sizes = [len(split) / len(SMILES) for split in (train, valid, test)]
+    expected = [TRAIN_SIZE, VALID_SIZE, 1 - TRAIN_SIZE - VALID_SIZE]
     assert sizes == pytest.approx(expected, abs=CLUSTER_TOLERANCE)
 
 
 def test_three_way_out_puts_each_cluster_in_one_split(clusters: np.ndarray) -> None:
     """The second cut keeps the first's guarantee: no scaffold is shared by two splits."""
     splits = splitter("scaffold", "out").split()
-    train, test, valid = (set(clusters[split]) for split in splits)
-    assert not (train & test or train & valid or test & valid)
+    train, valid, test = (set(clusters[split]) for split in splits)
+    assert not (train & valid or train & test or valid & test)
 
 
-def test_three_way_in_keeps_test_and_valid_clusters_in_train(
+def test_three_way_in_keeps_valid_and_test_clusters_in_train(
     clusters: np.ndarray
 ) -> None:
     """Neither held-out set brings a scaffold train has not seen."""
-    train, test, valid = splitter("scaffold", "in").split()
-    assert set(clusters[test]) <= set(clusters[train])
+    train, valid, test = splitter("scaffold", "in").split()
     assert set(clusters[valid]) <= set(clusters[train])
+    assert set(clusters[test]) <= set(clusters[train])
 
 
 def test_unknown_method_raises() -> None:
@@ -172,9 +172,9 @@ def test_unknown_distribution_raises() -> None:
         splitter("scaffold", "sideways")
 
 
-def test_sizes_must_leave_a_validation_set() -> None:
-    """Train and test that fill the set leave nothing to select on, so they are refused."""
-    with pytest.raises(ValueError, match="validation set"):
+def test_sizes_must_leave_a_test_set() -> None:
+    """Train and valid that fill the set leave nothing held out, so they are refused."""
+    with pytest.raises(ValueError, match="test set"):
         Splitters(SMILES, "scaffold", "in", 0.9, 0.1)
 
 

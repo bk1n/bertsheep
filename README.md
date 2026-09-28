@@ -54,7 +54,7 @@ EGFR wild type, Butina clusters (minimum size 10), 30 seeds per arm and distribu
 
 ### Optimal hyperparameters per arm
 
-Tuned with Optuna (TPE) on seed 0's split, scored on test, validation never read. Trials: XGBoost 100, pre-trained 50, fine-tuned 50.
+Tuned with Optuna (TPE) on seed 0's split, scored on validation, test never read. Trials: XGBoost 100, pre-trained 50, fine-tuned 50.
 
 | Arm | Distribution | lr | weight decay | warmup | dropout |
 |---|---|---|---|---|---|
@@ -71,9 +71,9 @@ Tuned with Optuna (TPE) on seed 0's split, scored on test, validation never read
 
 ### Model performance
 
-![Question 1: validation RMSE per arm (left; one point per seed, coloured by valid-to-train similarity) and RMSE curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
+![Question 1: test RMSE per arm (left; one point per seed, coloured by test-to-train similarity) and RMSE curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
 
-Validation RMSE in −ln IC50 (nM), mean ± SD over 30 seeds.
+Test RMSE in −ln IC50 (nM), mean ± SD over 30 seeds.
 
 | Arm | In-distribution | Out-of-distribution |
 |---|---|---|
@@ -92,7 +92,7 @@ In-distribution and out-of-distribution performance is higher for XGBoost traine
 Fine-tuning shows similar performance to the pre-trained model with a small advantage in-distribution (fine-tuned beats pre-trained in 25/30 seeds). 
 This is potentially because the MTR pre-training method, which regresses ~200 RDKit descriptors, already learns affinity-relevant descriptors in the frozen latent space.
 
-**Out-of-distribution, which clusters are held out matters more than which model is used.** The seeds are strongly correlated across arms. Seed 24 is the worst seed for XGBoost, pre-trained and fine-tuned (RMSE 3.55, 3.25, 3.58), where XGBoost and fine-tuning do worse than predicting the training mean (3.46), and seed 17 is the best for XGBoost and fine-tuned (1.96, 2.12). The spread across seeds (SD 0.31–0.38) is about three times the gap between the best and worst model (0.12). The validation set also ranges from 708 to 2,250 molecules because clusters vary in size. A single held-out split would give a misleading ranking of these models.
+**Out-of-distribution, which clusters are held out matters more than which model is used.** The seeds are strongly correlated across arms. Seed 24 is the worst seed for XGBoost, pre-trained and fine-tuned (RMSE 3.55, 3.25, 3.58), where XGBoost and fine-tuning do worse than predicting the training mean (3.46), and seed 17 is the best for XGBoost and fine-tuned (1.96, 2.12). The spread across seeds (SD 0.31–0.38) is about three times the gap between the best and worst model (0.12). The test set also ranges from 708 to 2,250 molecules because clusters vary in size. A single held-out split would give a misleading ranking of these models.
 
 The wide performance range out-of-distribution suggests that some clusters may be easier to predict than others; performance tracks across arms by seed (i.e. some seeds are easier to predict than others out-of-distribution).
 
@@ -104,6 +104,6 @@ The wide performance range out-of-distribution suggests that some clusters may b
 - **The embedding layer barely moves.** In both distributions its layout is nearly the same at the pre-trained weights and at the last epoch.
 Fine-tuning changes the encoder layers, not the token embeddings.
 - **The last encoder layer reorganises around affinity.** In-distribution, weak binders (dark) collect on one side of encoder layer 3 and potent ones (yellow/orange) on the other by the selected epoch. The same starts to happen out-of-distribution.
-- **In-distribution, validation molecules move with their training neighbours.** In the above figures, clusters are coloured if they are part of the validation set. During in-distribution training, these clusters are associated with training compounds, so the validation clusters are carried along into the affinity-sorted layout.
+- **In-distribution, test molecules move with their training neighbours.** In the above figures, clusters are coloured if they are part of the test set. During in-distribution training, these clusters are associated with training compounds, so the test clusters are carried along into the affinity-sorted layout.
 - **Out-of-distribution, the training molecules rearrange while the held-out molecules stay close to where they started.** 
-During out-of-distribution training, the training molecules are still reorganised in the last layer to an affinity-sorted layout. In contrast, the validation clusters remain relatively static, moving little and not following the training molecules. The model is not able to learn generalisable features that transfer to these clusters. This highlights the poor performance on out-of-distribution compounds and weak generalisation.
+During out-of-distribution training, the training molecules are still reorganised in the last layer to an affinity-sorted layout. In contrast, the test clusters remain relatively static, moving little and not following the training molecules. The model is not able to learn generalisable features that transfer to these clusters. This highlights the poor performance on out-of-distribution compounds and weak generalisation.
