@@ -81,16 +81,23 @@ SEARCH_SPACES = {
 }
 
 
-def study_name(target: str, arm: str, method: str, distribution: str) -> str:
+def study_name(target: str, mutation: str | None, arm: str, method: str,
+               distribution: str) -> str:
     """
     Name a study, and the best-parameters file it writes, for everything its
-    parameters are specific to: the arm they configure and the split they
-    were tuned against, since one split's winners are not another's.
+    parameters are specific to: the frame they were tuned on, the arm they
+    configure and the split they were tuned against, since one variant's or
+    one split's winners are not another's. The variant has to be in the name
+    because studies resume by name: without it, a mutant's run would load the
+    wild-type study, find its trials already run, and fit on its winners.
 
     Parameters
     ----------
     target : str
         Short target name.
+    mutation : str | None
+        Variant the frame was selected for, see Data; None for the pooled
+        frame, named as the results file and distance cache name it.
     arm : str
         Key of SEARCH_SPACES.
     method : str
@@ -101,9 +108,9 @@ def study_name(target: str, arm: str, method: str, distribution: str) -> str:
     Returns
     -------
     str
-        Study name, e.g. 'EGFR-finetuned-butina-out'.
+        Study name, e.g. 'EGFR-wildtype-finetuned-butina-out'.
     """
-    return f"{target}-{arm}-{method}-{distribution}"
+    return f"{target}-{mutation or 'pooled'}-{arm}-{method}-{distribution}"
 
 
 def best_params_path(study: str) -> Path:
@@ -141,7 +148,9 @@ class Tuner:
     Parameters
     ----------
     df : pd.DataFrame
-        Preprocessed frame with `smiles` and `labels` columns.
+        Preprocessed frame with `smiles` and `labels` columns, whose
+        `attrs["mutation"]` names the study, so a study cannot be named for a
+        variant other than the one its trials were fitted on.
     target : str
         Short target name, used in the study name and passed through to Model.
     splitter : Splitters
@@ -180,8 +189,8 @@ class Tuner:
         self.fingerprints = fingerprints
         self.n_trials = N_TRIALS[arm] if n_trials is None else n_trials
         self.seed = seed
-        self.study_name = study_name(target, arm, splitter.method,
-                                     splitter.distribution)
+        self.study_name = study_name(target, df.attrs["mutation"], arm,
+                                     splitter.method, splitter.distribution)
         TUNING_DIR.mkdir(parents=True, exist_ok=True)
 
     def _search_space(self, trial: optuna.Trial) -> dict[str, float | int]:

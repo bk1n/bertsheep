@@ -26,7 +26,7 @@ def _record(arm: str, distribution: str = "in") -> dict:
     dict
         The file's contents.
     """
-    path = best_params_path(study_name("TEST", arm, METHOD, distribution))
+    path = best_params_path(study_name("TEST", None, arm, METHOD, distribution))
     return json.loads(path.read_text())
 
 
@@ -79,6 +79,20 @@ def test_baseline_study_writes_resumes_and_is_read_back(
     assert experiment._baseline(splitter)["test_rmse"] > 0
 
 
+def test_studies_are_keyed_on_mutation(experiment: Experiment) -> None:
+    """
+    A study tuned on one variant's frame is invisible to another variant's
+    Experiment, which has to tune its own rather than fit on the first's winners.
+    """
+    Tuner(experiment.df, "TEST", experiment._splitter("in", 0), "baseline",
+          fingerprints=experiment.fingerprints, n_trials=1).optimise()
+    mutant = experiment.df.copy()
+    mutant.attrs = {**experiment.df.attrs, "mutation": "X1Y"}
+    with pytest.raises(FileNotFoundError):
+        Experiment(mutant, "TEST", mutation="X1Y", min_cluster_size=1)._params(
+            "baseline", "in")
+
+
 def test_tune_keys_each_arm_separately(
     monkeypatch: pytest.MonkeyPatch, experiment: Experiment
 ) -> None:
@@ -93,13 +107,13 @@ def test_tune_keys_each_arm_separately(
 
     experiment.tune(arms=["pretrained"], distributions=["in"])
     assert [p.stem for p in bt.TUNING_DIR.glob("*.json")] == [
-        study_name("TEST", "pretrained", METHOD, "in")
+        study_name("TEST", None, "pretrained", METHOD, "in")
     ]
 
     experiment.tune(distributions=["in"])
     for arm in TUNED_ARMS:
         record = _record(arm)
-        assert record["study"] == study_name("TEST", arm, METHOD, "in")
+        assert record["study"] == study_name("TEST", None, arm, METHOD, "in")
         assert record["params"].keys() == SEARCH_SPACES[arm].keys()
     low, high, _ = SEARCH_SPACES["pretrained"]["lr"]
     assert low <= _record("pretrained")["params"]["lr"] <= high

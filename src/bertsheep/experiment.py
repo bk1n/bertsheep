@@ -158,7 +158,9 @@ class Experiment:
         dict[str, float | int]
             Model keyword arguments, or XGBoost parameters for the baseline.
         """
-        path = best_params_path(study_name(self.target, arm, METHOD, distribution))
+        path = best_params_path(
+            study_name(self.target, self.mutation, arm, METHOD, distribution)
+        )
         return json.loads(path.read_text())["params"]
 
     def _mean(self, splitter: Splitters) -> dict[str, float | str | None]:
