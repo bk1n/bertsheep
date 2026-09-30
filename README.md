@@ -84,6 +84,8 @@ Made possible by an approx. 2x speedup from bf16 autocast.
 
 ![Question 1: test RMSE per arm (left; one point per seed, coloured by test-to-train similarity) and RMSE curves (right), in- and out-of-distribution](figures/EGFR-wildtype_q1.png)
 
+Pairwise Nadeau-Bengio corrected p-values, with Benjamini-Hochberg p-value adjustment, are shown above the boxplots.    
+
 **ChemBERTa learns more than cluster identity.** 
 In-distribution performance of all models was higher than the cluster mean, suggesting the models are successfully learning features of the compounds that predict binding to EGFR. 
 

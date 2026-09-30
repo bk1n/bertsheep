@@ -3,13 +3,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 import bertsheep.results as br
 from bertsheep.results import Results
 from bertsheep.splitters import DISTRIBUTIONS
 
 EPOCHS = 10
-SEEDS = 5  # enough for the mixed model behind q1()'s brackets to fit
+SEEDS = 5  # enough for the paired tests behind q1()'s brackets to have spread
+# One in-distribution split's sizes, shared by every fake run: n2 / n1 = 0.2.
+SPLIT_SIZES = {"n_train": 5868, "n_valid": 1467, "n_test": 1467}
 
 
 @pytest.fixture
@@ -27,7 +30,7 @@ def results_path(tmp_path: Path) -> Path:
             for arm, rmse in (("cluster_mean", 2.0), ("baseline", 1.5)):
                 rows.append({"arm": arm, "distribution": distribution, "seed": seed,
                              "test_rmse": rmse + rng.normal(0, 0.1),
-                             "test_r2": 0.5, "run_dir": None})
+                             "test_r2": 0.5, "run_dir": None, **SPLIT_SIZES})
             for arm in ("pretrained", "finetuned"):
                 run_dir = tmp_path / f"{arm}-{distribution}-{seed}"
                 run_dir.mkdir()
@@ -39,7 +42,7 @@ def results_path(tmp_path: Path) -> Path:
                 }).to_csv(run_dir / "history.csv", index=False)
                 rows.append({"arm": arm, "distribution": distribution, "seed": seed,
                              "test_rmse": 1.0 + rng.normal(0, 0.1), "test_r2": 0.7,
-                             "run_dir": str(run_dir)})
+                             "run_dir": str(run_dir), **SPLIT_SIZES})
     path = tmp_path / "EGFR-wildtype.csv"
     pd.DataFrame(rows).to_csv(path, index=False)
     return path
@@ -100,25 +103,45 @@ def test_similarity_is_median_nearest_train_neighbour(results_path: Path,
     np.testing.assert_allclose(results.similarity.loc[("in", 0)], 0.6)
 
 
-def test_comparisons_find_a_real_gap_and_not_a_null_one(tmp_path: Path) -> None:
-    # Per-seed difficulty shared by every arm, as the grid's splits give; the
-    # baseline 0.2 better than pretrained, and fine-tuned a copy of pretrained
-    # so the null pair is null in the sample too, not just in expectation.
+@pytest.fixture
+def comparisons_path(tmp_path: Path) -> Path:
+    """
+    A results file of 30 seeds per distribution with a per-seed difficulty
+    shared by every arm, as the grid's splits give: the baseline 0.2 better
+    than pretrained, and fine-tuned level with pretrained.
+    """
     rng = np.random.default_rng(0)
     offsets = {"cluster_mean": 1.0, "baseline": 0.0, "pretrained": 0.2, "finetuned": 0.2}
     rows = [
         {"arm": arm, "distribution": distribution, "seed": seed,
-         "test_rmse": 1.5 + offset + difficulty + rng.normal(0, 0.05)}
+         "test_rmse": 1.5 + offset + difficulty + rng.normal(0, 0.05), **SPLIT_SIZES}
         for distribution in DISTRIBUTIONS
         for seed, difficulty in enumerate(rng.normal(0, 0.3, 30))
         for arm, offset in offsets.items()
     ]
-    df = pd.DataFrame(rows)
-    df.loc[df["arm"] == "finetuned", "test_rmse"] = df.loc[
-        df["arm"] == "pretrained", "test_rmse"].to_numpy()
     path = tmp_path / "EGFR-wildtype.csv"
-    df.to_csv(path, index=False)
-    comparisons = Results(path).comparisons()
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
+
+
+def test_comparisons_apply_nadeau_bengios_correction(comparisons_path: Path) -> None:
+    # The corrected statistic is the paired t statistic scaled by
+    # sqrt((1 / J) / (1 / J + n2 / n1)), with n1 counting validation.
+    df = pd.read_csv(comparisons_path)
+    wide = df[df["distribution"] == "in"].pivot(index="seed", columns="arm",
+                                                values="test_rmse")
+    paired = stats.ttest_rel(wide["baseline"], wide["pretrained"])
+    seeds = len(wide)
+    ratio = SPLIT_SIZES["n_test"] / (SPLIT_SIZES["n_train"] + SPLIT_SIZES["n_valid"])
+    corrected = paired.statistic * np.sqrt((1 / seeds) / (1 / seeds + ratio))
+    pair = Results(comparisons_path).comparisons().loc[("in", "baseline", "pretrained")]
+    assert pair["difference"] / pair["std_err"] == pytest.approx(corrected)
+    assert pair["p"] == pytest.approx(2 * stats.t.sf(abs(corrected), seeds - 1))
+    assert pair["ci_low"] < pair["difference"] < pair["ci_high"]
+
+
+def test_comparisons_find_a_real_gap_and_not_a_null_one(comparisons_path: Path) -> None:
+    comparisons = Results(comparisons_path).comparisons()
     assert len(comparisons) == len(DISTRIBUTIONS) * 6
     assert (comparisons["p_adjusted"] >= comparisons["p"]).all()
     for distribution in DISTRIBUTIONS:

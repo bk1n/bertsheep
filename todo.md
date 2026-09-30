@@ -19,7 +19,9 @@ not do yet, at the level of "what needs building", not how.
 - [x] Swap train/test/validation for train/validation/test (a rename only: each partition keeps its molecules, so no results changed; `out/` was migrated in place)
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
 - [x] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons (`Results.comparisons()`, brackets on the q1 boxes)
-    - [ ] Ensure that LMM on performance boxplots are generating figures as expected, even small changes are currently looking significant?
+    - [x] Ensure that LMM on performance boxplots are generating figures as expected, even small changes are currently looking significant? (they were anti-conservative: the seeds are resplits of one dataset with overlapping training sets, and one pooled residual variance served every pair. The LMM is replaced by Nadeau & Bengio's (2003) corrected resampled paired t-test)
+    - [ ] The Nadeau–Bengio correction is only an approximation for the out-of-distribution (Butina scaffold) splits. Its `n2 / n1` overlap term assumes random resplits of a fixed size, but scaffold splits hold out whole clusters (not random molecules) and vary `n_test` by seed (708–2250 on EGFR), so `_pairwise` averages the ratio over seeds. Caveat this in results.md/README, or move to a scaffold-aware test (e.g. a bootstrap over clusters)
+    - [ ] Regenerate `figures/*_q1.png` so its brackets use the corrected test
 - [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+test sets (`Results.similarity`: median over test of each molecule's nearest-train-neighbour similarity)
     - [ ] Check this is working as intended  
 - [x] GitHub actions + pytest on every push plus a badge

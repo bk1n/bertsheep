@@ -8,13 +8,13 @@ from typing import NamedTuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import statsmodels.formula.api as smf
 import umap
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import ListedColormap, Normalize
 from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
+from scipy import stats
 from statsmodels.nonparametric.smoothers_lowess import lowess
 from statsmodels.stats.multitest import multipletests
 
@@ -91,16 +91,16 @@ JITTER = 0.15
 JITTER_SEED = 0
 # Arms tested against each other, in box order. "mean" is left out: every model
 # beats it by a mile, and out-of-distribution it scores exactly as the cluster
-# mean does, so it adds tests without adding information -- and, sharing the
-# mixed model's residual variance, it would move the others' standard errors.
+# mean does, so it adds tests to the Holm family without adding information.
 COMPARED_ARMS = ("cluster_mean", "baseline", "pretrained", "finetuned")
+CONFIDENCE = 0.95
 # Holm keeps Bonferroni's family-wise error rate and is never less powerful.
 P_ADJUST = "holm"
 SIGNIFICANCE_BINS = [0, 0.001, 0.01, 0.05, 1]
 SIGNIFICANCE_LABELS = ["***", "**", "*", "ns"]
 # Gap between stacked brackets, as a share of the test RMSE's range over both
 # distributions: the box rows share a y axis, so one step suits both.
-BRACKET_STEP = 0.08
+BRACKET_STEP = 0.2
 
 # Aligned UMAP coordinates per GIF run. Cached because embedding every
 # checkpoint and aligning the epochs takes minutes, and restyling a figure
@@ -270,20 +270,20 @@ class Results:
 
     def _pairwise(self, distribution: str) -> pd.DataFrame:
         """
-        Every pair of COMPARED_ARMS tested on one distribution's test RMSE,
-        with a linear mixed model that gives each seed a random intercept.
-        Every arm sees the same split for a given seed, and some splits are
-        harder than others for every arm, so the seed is a block. Each seed's
-        intercept takes out that shared difficulty before the arms are compared.
+        Every pair of COMPARED_ARMS tested on one distribution's test RMSE with
+        Nadeau and Bengio's (2003) corrected resampled t-test. Every arm sees
+        the same split for a given seed, so each pair is compared on its
+        per-seed differences, which takes out how hard that seed's split is.
 
-        The arms are coded as cell means (no intercept), so each fixed effect is
-        an arm's mean RMSE and a pair's contrast is one row of +1/-1. The
-        contrasts go through t_test by hand: MixedLM's t_test takes fixed-effect
-        columns only, and the built-in t_test_pairwise also counts the seed
-        variance as a column, so it cannot run on MixedLM.
-        In-distribution the seed variance is close to zero, and statsmodels warns
-        that the estimate is on the boundary. That is expected, and the
-        contrasts are still valid.
+        The seeds are J resplits of one dataset, not J datasets: their training
+        sets overlap, so their differences are positively correlated, and the
+        plain paired t-test's variance, sigma^2 / J, understates how much the
+        mean difference would move on new data. Nadeau and Bengio replace it
+        with (1 / J + n2 / n1) sigma^2, n1 and n2 being the training and test
+        sizes (n1 + n2 = n), and compare against t with J - 1 degrees of
+        freedom. Validation feeds every arm's model selection, so it counts
+        towards n1. The out-of-distribution splits vary n2 by seed, so n2 / n1
+        is averaged over the seeds.
 
         Parameters
         ----------
@@ -295,33 +295,38 @@ class Results:
         pd.DataFrame
             One row per pair, arm_a before arm_b in COMPARED_ARMS order.
             difference is arm_a's RMSE minus arm_b's, so a negative value means
-            arm_a scores better. The p-values are Wald z tests, with p_adjusted
-            corrected for this distribution's pairs.
+            arm_a scores better. ci_low and ci_high bound it at CONFIDENCE, and
+            p_adjusted is p corrected for this distribution's pairs.
         """
         scores = self.df[(self.df["distribution"] == distribution)
                          & self.df["arm"].isin(COMPARED_ARMS)]
-        scores = scores.assign(arm=pd.Categorical(scores["arm"], COMPARED_ARMS))
-        fit = smf.mixedlm("test_rmse ~ 0 + arm", scores, groups=scores["seed"]).fit()
+        # Only seeds every arm has finished can be paired.
+        wide = scores.pivot(index="seed", columns="arm", values="test_rmse").dropna()
+        sizes = scores.groupby("seed")[["n_train", "n_valid", "n_test"]].first().loc[wide.index]
+        ratio = (sizes["n_test"] / (sizes["n_train"] + sizes["n_valid"])).mean()
         pairs = pd.DataFrame(combinations(COMPARED_ARMS, 2), columns=["arm_a", "arm_b"])
-        means = pd.DataFrame(np.eye(len(COMPARED_ARMS)), index=COMPARED_ARMS)
-        tests = fit.t_test(means.loc[pairs["arm_a"]].to_numpy()
-                           - means.loc[pairs["arm_b"]].to_numpy()).summary_frame()
+        differences = wide[pairs["arm_a"]].to_numpy() - wide[pairs["arm_b"]].to_numpy()
+        seeds = len(differences)
+        difference = differences.mean(axis=0)
+        std_err = np.sqrt((1 / seeds + ratio) * differences.var(axis=0, ddof=1))
+        ci_low, ci_high = stats.t.interval(CONFIDENCE, seeds - 1, loc=difference,
+                                           scale=std_err)
+        p = 2 * stats.t.sf(np.abs(difference / std_err), seeds - 1)
         return pairs.assign(
             distribution=distribution,
-            difference=tests["coef"].to_numpy(),
-            std_err=tests["std err"].to_numpy(),
-            ci_low=tests["Conf. Int. Low"].to_numpy(),
-            ci_high=tests["Conf. Int. Upp."].to_numpy(),
-            p=tests["P>|z|"].to_numpy(),
-            p_adjusted=multipletests(tests["P>|z|"], method=P_ADJUST)[1],
+            difference=difference,
+            std_err=std_err,
+            ci_low=ci_low,
+            ci_high=ci_high,
+            p=p,
+            p_adjusted=multipletests(p, method=P_ADJUST)[1],
         )
 
     def comparisons(self) -> pd.DataFrame:
         """
-        The pairwise arm tests for every distribution. Each distribution gets
-        its own mixed model: seeds are not shared between them (each has its
-        own splitter), and out-of-distribution scores vary about ten times more,
-        so one pooled residual variance would suit neither.
+        The pairwise arm tests for every distribution, tested and corrected
+        for multiple comparisons separately: seeds are not shared between them,
+        since each has its own splitter.
 
         Returns
         -------
@@ -386,8 +391,8 @@ class Results:
         norm : Normalize
             Similarity colour scale, shared by both distributions.
         comparisons : pd.DataFrame
-            From comparisons(), passed in so the mixed models are fitted once
-            per figure rather than once per panel.
+            From comparisons(), passed in so the tests run once per figure
+            rather than once per panel.
         """
         scores = self.df[(self.df["distribution"] == distribution)
                          & self.df["arm"].isin(COMPARED_ARMS)]
