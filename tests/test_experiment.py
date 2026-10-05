@@ -96,14 +96,14 @@ def test_grid_resumes_rather_than_repeating(
     assert not results.duplicated(be.KEY).any()
 
 
-@pytest.mark.parametrize("seed", [5, be.GIF_SEED])
+@pytest.mark.parametrize("seed", [5, be.VIDEO_SEED])
 @pytest.mark.parametrize("arm", ["pretrained", "finetuned"])
 def test_transformer_arms_differ_only_in_freezing(
     monkeypatch: pytest.MonkeyPatch, experiment: Experiment, arm: str, seed: int
 ) -> None:
     """
     Each transformer arm gets its own tuned parameters and the replicate seed;
-    the frozen one also skips checkpoints. Only GIF_SEED keeps every epoch.
+    the frozen one also skips checkpoints. Only VIDEO_SEED keeps every epoch.
     """
     built = {}
 
@@ -125,4 +125,4 @@ def test_transformer_arms_differ_only_in_freezing(
     assert built["lr"] == tuned[arm]["lr"]
     assert built["freeze"] is frozen
     assert built["checkpoint"] is not frozen
-    assert built["trajectory"] is (seed == be.GIF_SEED)
+    assert built["trajectory"] is (seed == be.VIDEO_SEED)

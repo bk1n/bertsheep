@@ -36,9 +36,9 @@ N_REPEATS = 30  # seeds 0..N-1, each a new split and a new model initialisation
 # The search runs once, on the first replicate's split; every seed reuses it.
 TUNING_SEED = 0
 # The replicate whose fine-tuned runs keep every epoch's weights, for the
-# latent-space GIF. One run per distribution is all the animation draws on;
+# latent-space video. One run per distribution is all the animation draws on;
 # the other seeds keep only the starting and best weights RSA compares.
-GIF_SEED = 0
+VIDEO_SEED = 0
 MIN_CLUSTER_SIZE = 10
 MUTATION = WILD_TYPE
 
@@ -266,7 +266,7 @@ class Experiment:
         Fit and score ChemBERTa on the split, frozen or fine-tuned, with the
         hyperparameters tuned for that arm. Only fine-tuned runs write
         checkpoints: a frozen encoder's weights are the published ones at
-        every epoch. Of those, only GIF_SEED's keep every epoch rather than
+        every epoch. Of those, only VIDEO_SEED's keep every epoch rather than
         just the ends.
 
         Parameters
@@ -285,7 +285,7 @@ class Experiment:
         params = self._params(arm, splitter.distribution)
         model = Model(self.df, self.target, splitter, seed=splitter.seed,
                       checkpoint=not freeze,
-                      trajectory=splitter.seed == GIF_SEED,
+                      trajectory=splitter.seed == VIDEO_SEED,
                       freeze=freeze, **params)
         model.fit()
         metrics = model.evaluate()

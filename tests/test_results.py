@@ -155,7 +155,7 @@ def test_comparisons_find_a_real_gap_and_not_a_null_one(comparisons_path: Path) 
 def trajectories(results_path: Path) -> list[br.Trajectory]:
     """
     One fake trajectory per distribution over the fixture's fine-tuned
-    histories: random coordinates for every GIF layer and epoch, so the Q2
+    histories: random coordinates for every video layer and epoch, so the Q2
     figures can be drawn without ChemBERTa or aligned UMAP.
     """
     rng = np.random.default_rng(0)
@@ -169,7 +169,7 @@ def trajectories(results_path: Path) -> list[br.Trajectory]:
     })
     return [
         br.Trajectory(distribution, molecules,
-                      rng.normal(size=(len(br.GIF_LAYERS), EPOCHS + 1, n, 2)),
+                      rng.normal(size=(len(br.VIDEO_LAYERS), EPOCHS + 1, n, 2)),
                       pd.read_csv(Path(runs.loc[distribution, "run_dir"]) / "history.csv"),
                       best_epoch=3)
         for distribution in DISTRIBUTIONS
@@ -195,7 +195,7 @@ def test_status_marks_start_selection_and_stop(
 
 
 @pytest.mark.parametrize("colour", br.COLOURINGS)
-def test_q2_writes_gif_and_filmstrip(
+def test_q2_writes_video(
         trajectories: list[br.Trajectory], results_path: Path, tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch, colour: str) -> None:
     monkeypatch.setattr(br, "FIGURE_DIR", tmp_path / "figures")
@@ -204,6 +204,6 @@ def test_q2_writes_gif_and_filmstrip(
     monkeypatch.setattr(br, "DPI", 50)
     results = Results(results_path)
     results.trajectories = trajectories  # stands in for the cached property
-    for path in (results.q2_gif(colour), results.q2_filmstrip(colour)):
-        assert path.parent == tmp_path / "figures"
-        assert path.stat().st_size > 0
+    path = results.q2_video(colour)
+    assert path.parent == tmp_path / "figures"
+    assert path.stat().st_size > 0
