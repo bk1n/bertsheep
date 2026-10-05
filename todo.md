@@ -1,12 +1,12 @@
 # bertsheep — TODO
 
-`README.md` is the spec. This lists what it asks for that `src/bertsheep/` does
-not do yet, at the level of "what needs building", not how.
+`docs/index.html` (the Pages report) describes the design. This lists what
+`src/bertsheep/` does not do yet, at the level of "what needs building", not how.
 
 ## Question 2 — latent space during fine-tuning
 
-- [x] `Results.q2()`: aligned-UMAP GIF (distribution x embedding/middle/last layer, plus a loss column with a moving cursor) and a static filmstrip of its key frames, each coloured by affinity and by Butina cluster, over a seeded fifth of each split (`SUBSAMPLE`). Coordinates cache to `out/latent/<run>.npy`
-- [ ] RSA line graphs, (a) per embedding/encoder layer and (b) per attention layer, in vs out of distribution. Attention maps are recomputed from `init.pt`/`best.pt` with `output_attentions=True`; the GIF leaves attention to this figure
+- [x] `Results.q2()`: aligned-UMAP MP4 (distribution x embedding/middle/last layer, plus a loss column with a moving cursor), coloured by affinity and by Butina cluster, over a seeded fifth of each split (`SUBSAMPLE`). Coordinates cache to `out/latent/<run>.npy`
+- [ ] RSA line graphs, (a) per embedding/encoder layer and (b) per attention layer, in vs out of distribution. Attention maps are recomputed from `init.pt`/`best.pt` with `output_attentions=True`; the video leaves attention to this figure
 
 ## Housekeeping 
 
@@ -20,13 +20,13 @@ not do yet, at the level of "what needs building", not how.
 - [x] Add/complete a Data section in README detailing EGFR selection + filtering etc
 - [x] Build a basic linear mixed effects model w/ seed as random effect for RMSE; extract p-values from fixed effects comparisons (`Results.comparisons()`, brackets on the q1 boxes)
     - [x] Ensure that LMM on performance boxplots are generating figures as expected, even small changes are currently looking significant? (they were anti-conservative: the seeds are resplits of one dataset with overlapping training sets, and one pooled residual variance served every pair. The LMM is replaced by Nadeau & Bengio's (2003) corrected resampled paired t-test)
-    - [ ] The Nadeau–Bengio correction is only an approximation for the out-of-distribution (Butina scaffold) splits. Its `n2 / n1` overlap term assumes random resplits of a fixed size, but scaffold splits hold out whole clusters (not random molecules) and vary `n_test` by seed (708–2250 on EGFR), so `_pairwise` averages the ratio over seeds. Caveat this in results.md/README, or move to a scaffold-aware test (e.g. a bootstrap over clusters)
-    - [ ] Regenerate `figures/*_q1.png` so its brackets use the corrected test
+    - [ ] The Nadeau–Bengio correction is only an approximation for the out-of-distribution (Butina scaffold) splits. Its `n2 / n1` overlap term assumes random resplits of a fixed size, but scaffold splits hold out whole clusters (not random molecules) and vary `n_test` by seed (708–2250 on EGFR), so `_pairwise` averages the ratio over seeds. The report labels the out-of-distribution p-values approximate; a proper fix is a scaffold-aware test (e.g. a bootstrap over clusters)
+    - [x] Regenerate `figures/*_q1.png` so its brackets use the corrected test
 - [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+test sets (`Results.similarity`: median over test of each molecule's nearest-train-neighbour similarity)
     - [ ] Check this is working as intended  
 - [x] GitHub actions + pytest on every push plus a badge
 - [x] If we switched targets, mutations, etcetera - would this repo function as expected?
-- [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt` + `best.pt`, and every epoch only on `GIF_SEED`'s trajectory runs)
+- [x] Checkpoint retention — `epoch{NNN}.pt` is written every epoch with no cap (now `init.pt` + `best.pt`, and every epoch only on `VIDEO_SEED`'s trajectory runs)
 - [x] `Eda` UMAP split plots call the removed `Chemist.split_groups`; point them at `Splitters`
 - [ ] `eda.py` is the only module in `src/` with no type hints — the methods touched by the `Splitters` port have them, the rest do not
 - [ ] `eda.py`, `model.py` and `benchmark.py` each end in a `__main__` block with the target and the dump path as literals, which is the legacy pattern this repo is undoing
