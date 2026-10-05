@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>bertsheep report</title>
+<title>bertsheep</title>
 <meta name="description" content="ChemBERTa versus XGBoost for EGFR binding affinity, in and out of distribution.">
 <style>
   :root {
@@ -144,108 +144,47 @@
 
 <main>
 <header>
-  <h1>bertsheep: ChemBERTa for EGFR binding affinity</h1>
-  <p>Fine-tuning a pre-trained chemical language model on IC50 against wild-type human EGFR, compared with an XGBoost fingerprint baseline, in and out of distribution. 30 seeds per arm. Part of my work at Accenture Labs, refactored with Claude Code. Source: <a href="https://github.com/bk1n/bertsheep">github.com/bk1n/bertsheep</a>.</p>
+  <h1>bertsheep</h1>
+  <p>Part of my work at Accenture Labs, refactored with Claude Code. Source: <a href="https://github.com/bk1n/bertsheep">github.com/bk1n/bertsheep</a>.</p>
 </header>
 
 <section id="summary">
 <h2>Summary</h2>
-<p>We trained <a href="https://huggingface.co/DeepChem/ChemBERTa-10M-MTR">ChemBERTa-10M-MTR</a> to predict binding affinity (−ln IC50, nM) for 11,056 ligands of wild-type EGFR from <a href="https://www.bindingdb.org/">BindingDB</a>. It was trained either as a frozen encoder with a trained head or fully fine-tuned. We compared it with XGBoost on ECFP4 fingerprints and two reference predictors, across 30 Butina-cluster splits each in and out of distribution.</p>
-<ul>
-  <li><strong>Every model learns chemistry beyond cluster identity.</strong> In distribution, all three beat predicting each molecule's cluster mean.</li>
-  <li><strong>XGBoost on fingerprints beats ChemBERTa in distribution</strong> by 0.17–0.20 RMSE. Out of distribution its lead (0.12–0.13) is not significant.</li>
-  <li><strong>Fine-tuning is no better than a frozen encoder.</strong> The difference is 0.03 RMSE in distribution and 0.01 out of distribution, and neither is significant.</li>
-  <li><strong>Out of distribution, which clusters are held out matters more than which model is used.</strong> The spread across seeds is two to three times the gap between the best and worst model.</li>
-  <li><strong>Fine-tuning reorganises the last encoder layer around affinity, but held-out clusters do not follow.</strong> Out of distribution, the test molecules stay near where they started.</li>
-</ul>
+<p>Bidirectional encoder representations from transformers (BERT) for binding affinity (ba 🐑) prediction. Fine-tunes the pre-trained language model (<a href="https://arxiv.org/abs/2010.09885">ChemBERTa</a>) on <a href="https://www.bindingdb.org/">binding affinity</a> of compounds to a single target and evaluates generalisation performance.</p>
 </section>
 
 <section id="results">
 <h2>Results</h2>
 
-<h3 id="q1">Question 1: does ChemBERTa generalise, and does fine-tuning help?</h3>
-
-<div class="table-wrap">
-<table>
-  <caption>Test RMSE (−ln IC50, nM) over 30 seeds. Lower is better. Grey rows are the reference predictors.</caption>
-  <thead>
-    <tr><th>Arm</th><th class="num">In: mean ± SD</th><th class="num">In: range</th><th class="num">Out: mean ± SD</th><th class="num">Out: range</th></tr>
-  </thead>
-  <tbody>
-    <tr class="reference"><td>Training mean</td><td class="num">3.06 ± 0.04</td><td class="num">2.97–3.12</td><td class="num">3.15 ± 0.21</td><td class="num">2.78–3.65</td></tr>
-    <tr class="reference"><td>Cluster mean</td><td class="num">2.04 ± 0.04</td><td class="num">1.95–2.13</td><td class="num">3.15 ± 0.21</td><td class="num">2.78–3.65</td></tr>
-    <tr><td>XGBoost + ECFP4</td><td class="num">1.55 ± 0.04</td><td class="num">1.49–1.62</td><td class="num">2.50 ± 0.38</td><td class="num">1.96–3.55</td></tr>
-    <tr><td>ChemBERTa, pre-trained (frozen)</td><td class="num">1.75 ± 0.05</td><td class="num">1.66–1.90</td><td class="num">2.62 ± 0.31</td><td class="num">2.05–3.25</td></tr>
-    <tr><td>ChemBERTa, fine-tuned</td><td class="num">1.72 ± 0.05</td><td class="num">1.63–1.80</td><td class="num">2.63 ± 0.35</td><td class="num">2.09–3.62</td></tr>
-  </tbody>
-</table>
-</div>
+<h3 id="q1">Model performance</h3>
 
 <figure>
-  <img src="figures/EGFR-wildtype_q1.png" alt="Test RMSE boxplots per arm with significance brackets, and RMSE learning curves, in and out of distribution" loading="lazy">
-  <figcaption><strong>Figure 1.</strong> Left: test RMSE per arm, one point per seed. Each point is coloured by the median, over test molecules, of each molecule's Tanimoto similarity to its nearest training neighbour. Brackets show Holm-adjusted Nadeau–Bengio p-values. Right: train, validation and test RMSE over epochs (LOESS over seeds), with the reference arms as horizontal lines. Top row in distribution, bottom row out of distribution.</figcaption>
+  <img src="figures/EGFR-wildtype_q1.png" alt="Question 1: test RMSE per arm (left; one point per seed, coloured by test-to-train similarity) and RMSE curves (right), in- and out-of-distribution" loading="lazy">
+  <figcaption>Test RMSE per arm (left; one point per seed, coloured by test-to-train similarity) and RMSE curves (right), in- and out-of-distribution.</figcaption>
 </figure>
 
-<div class="table-wrap">
-<table>
-  <caption>Pairwise comparisons, in distribution. Δ is arm A's RMSE minus arm B's, so a negative Δ means A is better.</caption>
-  <thead>
-    <tr><th>Arm A</th><th>Arm B</th><th class="num">Δ RMSE</th><th class="num">95% CI</th><th class="num">p</th><th class="num">p (Holm)</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>Cluster mean</td><td>XGBoost</td><td class="num">0.490</td><td class="num">0.457 to 0.522</td><td class="num">1.0 × 10⁻²³</td><td class="num">6.1 × 10⁻²³</td></tr>
-    <tr><td>Cluster mean</td><td>Pre-trained</td><td class="num">0.291</td><td class="num">0.253 to 0.329</td><td class="num">1.1 × 10⁻¹⁵</td><td class="num">5.6 × 10⁻¹⁵</td></tr>
-    <tr><td>Cluster mean</td><td>Fine-tuned</td><td class="num">0.322</td><td class="num">0.279 to 0.365</td><td class="num">2.1 × 10⁻¹⁵</td><td class="num">8.6 × 10⁻¹⁵</td></tr>
-    <tr><td>XGBoost</td><td>Pre-trained</td><td class="num">−0.199</td><td class="num">−0.241 to −0.157</td><td class="num">1.3 × 10⁻¹⁰</td><td class="num">2.6 × 10⁻¹⁰</td></tr>
-    <tr><td>XGBoost</td><td>Fine-tuned</td><td class="num">−0.168</td><td class="num">−0.199 to −0.137</td><td class="num">5.5 × 10⁻¹²</td><td class="num">1.6 × 10⁻¹¹</td></tr>
-    <tr><td>Pre-trained</td><td>Fine-tuned</td><td class="num">0.031</td><td class="num">−0.019 to 0.081</td><td class="num">0.22</td><td class="num">0.22</td></tr>
-  </tbody>
-</table>
-</div>
-
-<div class="table-wrap">
-<table>
-  <caption>Pairwise comparisons, out of distribution. The p-values are approximate.</caption>
-  <thead>
-    <tr><th>Arm A</th><th>Arm B</th><th class="num">Δ RMSE</th><th class="num">95% CI</th><th class="num">p (approx.)</th><th class="num">p (Holm, approx.)</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>Cluster mean</td><td>XGBoost</td><td class="num">0.647</td><td class="num">0.376 to 0.919</td><td class="num">3.6 × 10⁻⁵</td><td class="num">2.2 × 10⁻⁴</td></tr>
-    <tr><td>Cluster mean</td><td>Pre-trained</td><td class="num">0.531</td><td class="num">0.291 to 0.771</td><td class="num">9.7 × 10⁻⁵</td><td class="num">4.8 × 10⁻⁴</td></tr>
-    <tr><td>Cluster mean</td><td>Fine-tuned</td><td class="num">0.518</td><td class="num">0.255 to 0.781</td><td class="num">3.7 × 10⁻⁴</td><td class="num">1.5 × 10⁻³</td></tr>
-    <tr><td>XGBoost</td><td>Pre-trained</td><td class="num">−0.117</td><td class="num">−0.323 to 0.090</td><td class="num">0.26</td><td class="num">0.55</td></tr>
-    <tr><td>XGBoost</td><td>Fine-tuned</td><td class="num">−0.129</td><td class="num">−0.323 to 0.064</td><td class="num">0.18</td><td class="num">0.55</td></tr>
-    <tr><td>Pre-trained</td><td>Fine-tuned</td><td class="num">−0.013</td><td class="num">−0.203 to 0.178</td><td class="num">0.89</td><td class="num">0.89</td></tr>
-  </tbody>
-</table>
-</div>
+<p>Pairwise Nadeau-Bengio corrected p-values, with Holm p-value adjustment, are shown above the boxplots. Out-of-distribution p-values are approximate.</p>
 
 <div class="finding">
   <strong>ChemBERTa learns more than cluster identity.</strong>
-  In distribution, every model beats the cluster-mean predictor by 0.29–0.49 RMSE. So the models are learning features of the compounds that predict binding to EGFR, not just recognising which chemical series a molecule belongs to.
+  In-distribution performance of all models was higher than the cluster mean, suggesting the models are successfully learning features of the compounds that predict binding to EGFR.
 </div>
 <div class="finding">
   <strong>XGBoost on fingerprints beats pre-trained and fine-tuned ChemBERTa.</strong>
-  In distribution, XGBoost on ECFP4 is 0.17–0.20 RMSE better than either ChemBERTa arm. Out of distribution it is ahead on average by 0.12–0.13, but the gap is well within the seed-to-seed spread and not significant. Other authors have <a href="https://www.nature.com/articles/s41467-023-41948-6">observed this</a>. There are many possible reasons for the weaker performance, including negative transfer and limited dataset size.
+  In-distribution and out-of-distribution performance is higher for XGBoost trained on fingerprints versus ChemBERTa trained on SMILES. Other authors have observed <a href="https://www.nature.com/articles/s41467-023-41948-6">this</a>, and many reasons for weaker performance exist, including negative transfer and limited dataset size.
 </div>
 <div class="finding">
-  <strong>Fine-tuning performs about the same as the pre-trained model.</strong>
-  In distribution, fine-tuning is 0.03 RMSE better on average and better on 20 of 30 seeds, which is not significant (p = 0.22). Out of distribution the two are indistinguishable. One possible reason is the MTR pre-training objective: it regresses about 200 RDKit descriptors, so the frozen latent space may already encode affinity-relevant descriptors.
+  <strong>Fine-tuning exhibits similar performance to the pre-trained model.</strong>
+  Fine-tuning shows similar performance to the pre-trained model with a small advantage in-distribution (fine-tuned beats pre-trained in 20/30 seeds).
+  This is potentially because the MTR pre-training method, which regresses ~200 RDKit descriptors, already learns affinity-relevant descriptors in the frozen latent space.
 </div>
 <div class="finding">
-  <strong>Out of distribution, which clusters are held out matters more than which model is used.</strong>
-  Per-seed RMSEs are strongly correlated across the three models (r = 0.81–0.84).
-  <ul>
-    <li><strong>Worst seed.</strong> Seed 24 is the worst for XGBoost, pre-trained and fine-tuned (RMSE 3.55, 3.25 and 3.62). On it, XGBoost and fine-tuning do worse than predicting the training mean (3.46).</li>
-    <li><strong>Best seed.</strong> Seed 17 is the best for XGBoost and fine-tuned (1.96 and 2.09).</li>
-    <li><strong>Spread versus gap.</strong> The spread across seeds (SD 0.31–0.38) is two to three times the gap between the best and worst model (0.13).</li>
-    <li><strong>Test-set size.</strong> The test set ranges from 708 to 2,250 molecules, because clusters vary in size.</li>
-  </ul>
-  A single held-out split would give a misleading ranking of these models: some sets of clusters are simply easier to predict than others.
+  <strong>Out-of-distribution, which clusters are held out matters more than which model is used.</strong>
+  The seeds are strongly correlated across arms. Seed 24 is the worst seed for XGBoost, pre-trained and fine-tuned (RMSE 3.55, 3.25, 3.62), where XGBoost and fine-tuning do worse than predicting the training mean (3.46), and seed 17 is the best for XGBoost and fine-tuned (1.96, 2.09). The spread across seeds (SD 0.31–0.38) is about three times the gap between the best and worst model (0.13). The test set also ranges from 708 to 2,250 molecules because clusters vary in size. A single held-out split would give a misleading ranking of these models.
 </div>
+<p>The wide performance range out-of-distribution suggests that some clusters may be easier to predict than others; performance tracks across arms by seed (i.e. some seeds are easier to predict than others out-of-distribution).</p>
 
-<h3 id="q2">Question 2: how does fine-tuning change the latent space?</h3>
-<p>Aligned UMAP of the fine-tuned model's hidden states for seed 0, from the pre-trained weights through every epoch of fine-tuning. Columns are the embedding layer and encoder layers 2 and 3, and rows are in and out of distribution. The right-hand panel tracks the loss. Test molecules are drawn larger and opaque. Both videos are driven by the same controls.</p>
+<h3 id="q2">Latent space with fine-tuning</h3>
 
 <div class="controls" aria-label="Video controls">
   <button type="button" id="play">Play</button>
@@ -254,19 +193,21 @@
 </div>
 
 <figure>
-  <video class="synced" src="figures/EGFR-wildtype_q2_label.mp4" muted playsinline loop preload="auto"></video>
-  <figcaption><strong>Figure 2.</strong> Coloured by affinity (−ln IC50, nM).</figcaption>
+  <video class="synced" src="figures/EGFR-wildtype_q2_label.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by affinity"></video>
+  <figcaption>Aligned UMAP of the fine-tuned model's latent space over training, coloured by affinity.</figcaption>
 </figure>
 <figure>
-  <video class="synced" src="figures/EGFR-wildtype_q2_cluster.mp4" muted playsinline loop preload="auto"></video>
-  <figcaption><strong>Figure 3.</strong> Coloured by Butina cluster (the 20 largest; grey for all others).</figcaption>
+  <video class="synced" src="figures/EGFR-wildtype_q2_cluster.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by cluster"></video>
+  <figcaption>Aligned UMAP of the fine-tuned model's latent space over training, coloured by cluster.</figcaption>
 </figure>
 
 <ul>
-  <li><strong>The embedding layer barely moves.</strong> In both distributions its layout is nearly the same at the pre-trained weights and at the last epoch. Fine-tuning changes the encoder layers, not the token embeddings.</li>
-  <li><strong>The last encoder layer reorganises around affinity.</strong> In distribution, by the selected epoch, weak binders (dark) collect on one side of encoder layer 3 and potent ones (yellow/orange) on the other. The same starts to happen out of distribution.</li>
-  <li><strong>In distribution, test molecules move with their training neighbours.</strong> Test clusters share their series with training compounds, so they are carried along into the affinity-sorted layout.</li>
-  <li><strong>Out of distribution, the training molecules rearrange while the held-out molecules stay close to where they started.</strong> The training molecules are still reorganised in the last layer into an affinity-sorted layout. The test clusters, in contrast, move little and do not follow them. The model is not learning generalisable features that transfer to these clusters, which matches its poor performance out of distribution.</li>
+  <li><strong>The embedding layer barely moves.</strong> In both distributions its layout is nearly the same at the pre-trained weights and at the last epoch.
+  Fine-tuning changes the encoder layers, not the token embeddings.</li>
+  <li><strong>The last encoder layer reorganises around affinity.</strong> In-distribution, weak binders (dark) collect on one side of encoder layer 3 and potent ones (yellow/orange) on the other by the selected epoch. The same starts to happen out-of-distribution.</li>
+  <li><strong>In-distribution, test molecules move with their training neighbours.</strong> In the above figures, clusters are coloured if they are part of the test set. During in-distribution training, these clusters are associated with training compounds, so the test clusters are carried along into the affinity-sorted layout.</li>
+  <li><strong>Out-of-distribution, the training molecules rearrange while the held-out molecules stay close to where they started.</strong>
+  During out-of-distribution training, the training molecules are still reorganised in the last layer to an affinity-sorted layout. In contrast, the test clusters remain relatively static, moving little and not following the training molecules. The model is not able to learn generalisable features that transfer to these clusters. This highlights the poor performance on out-of-distribution compounds and weak generalisation.</li>
 </ul>
 </section>
 

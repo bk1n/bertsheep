@@ -6,7 +6,7 @@ Fine-tunes the pre-trained language model ([ChemBERTa](https://arxiv.org/abs/201
 
 Part of my work at Accenture Labs, refactored with Claude Code.
 
-**[Read the report](https://bk1n.github.io/bertsheep/)**: results, data and methods, with figures.
+**[See the results](https://bk1n.github.io/bertsheep/)**, with figures, data and methods.
 
 ## Running
 Run the tests: `uv run pytest`\
