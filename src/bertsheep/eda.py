@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import umap as umap_
+from matplotlib.axes import Axes
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LogNorm
 from matplotlib.patches import Patch
@@ -13,7 +14,7 @@ from bertsheep.chemistry import BUTINA_CUTOFF, Chemist
 from bertsheep.data import CACHE_DIR
 from bertsheep.splitters import DISTRIBUTIONS, SPLIT_SEED, Splitters
 
-FIGURE_DIR = Path("out/eda")
+FIGURE_DIR = Path("figures/eda")
 UMAP_NEIGHBOURS = 15
 UMAP_MIN_DIST = 0.4
 UMAP_SEED = 444
@@ -40,11 +41,11 @@ LABEL_CLIP = 0.02
 BOX_COLOUR = "tab:blue"
 DPI = 300
 BOX_FIGSIZE = (12, 6)
+# The 2x2 splits grid's size as a multiple of the default figure; under 2, so
+# each panel is smaller than a default figure and its text reads larger.
+SPLITS_SCALE = 1.6
 # The label column is -ln(IC50 in nM); every figure names the axis the same way.
 LABEL_AXIS = "-ln IC50 (nM)"
-# Seeds per row of the split figures: enough to see which structure the split
-# repeats and which is luck of the draw.
-SPLIT_REPLICATES = 3
 # Keyed in the order the titles and the legend read. DROPPED is the ligands
 # MIN_CLUSTER_SIZE leaves out of every split, not a fourth split, so it takes
 # the grey and the three real splits take hues.
@@ -58,7 +59,6 @@ SPLIT_REPLICATES = 3
 DROPPED = "dropped"
 SPLIT_COLOURS = {"train": "tab:red", "valid": "tab:blue", "test": "tab:orange",
                  DROPPED: GREY}
-SPLIT_FIGSIZE = (15, 9)
 OTHER = "other"
 WILD_TYPE = "wild type"
 
@@ -94,17 +94,42 @@ class Eda():
         """
         return self.df["mutations"].replace("", WILD_TYPE)
 
-    def label_histogram(self, column="labels", bins="auto"):
+    def _draw_histogram(self, ax: Axes, column: str = "labels", bins="auto") -> None:
+        """
+        Draw the label distribution onto ax, untitled, so the same histogram
+        serves the standalone figure and the split overview.
+
+        Parameters
+        ----------
+        ax : Axes
+            Axes to draw into.
+        column : str
+            Label column to histogram.
+        bins
+            Anything `hist` accepts as bins.
+        """
+        self.df[column].hist(bins=bins, ax=ax)
+        ax.set(xlabel=LABEL_AXIS, ylabel="ligands")
+
+    def label_histogram(self, column: str = "labels", bins="auto") -> Axes:
         """
         Histogram of the label distribution.
+
+        Parameters
+        ----------
+        column : str
+            Label column to histogram.
+        bins
+            Anything `hist` accepts as bins.
+
+        Returns
+        -------
+        Axes
+            The histogram's axes.
         """
         _, ax = plt.subplots()
-        self.df[column].hist(bins=bins, ax=ax)
-        ax.set(
-            title=f"{self.target} {LABEL_AXIS} distribution (n={len(self.df)})",
-            xlabel=LABEL_AXIS,
-            ylabel="ligands",
-        )
+        self._draw_histogram(ax, column, bins)
+        ax.set_title(f"{self.target} {LABEL_AXIS} distribution (n={len(self.df)})")
         ax.figure.savefig(self.figure_dir / f"{self.target}_{column}_histogram.png", dpi=DPI)
         return ax
 
@@ -323,19 +348,23 @@ class Eda():
         return self._umap_group_size(self.ligand_butina(cutoff), f"butina_size_{cutoff:.2f}",
                                      f"Butina {cutoff} cluster")
 
-    def umap_labels(self, column="labels"):
+    def _draw_labels(self, ax: Axes, column: str = "labels") -> None:
         """
-        The same map coloured by affinity, median across constructs. If potency
-        tracks region rather than scattering through it, a random split hands the
-        model test answers it can reach by similarity alone; if it scatters, the
-        structure-activity relationship is steep and the scaffold split is hard.
+        Draw the map coloured by affinity onto ax, untitled, colour bar
+        alongside, so it serves both umap_labels and the split overview.
+
+        Parameters
+        ----------
+        ax : Axes
+            Axes to draw into.
+        column : str
+            Label column to colour by.
         """
         order = self.ligands[column].sort_values().index  # the potent drawn on top
         # Clipped to the central percentiles: the untrimmed range runs to roughly
         # -18, so a handful of inactives otherwise take the whole colour scale and
         # leave the real measurements in one flat band.
         low, high = self.ligands[column].quantile([LABEL_CLIP, 1 - LABEL_CLIP])
-        _, ax = plt.subplots()
         points = ax.scatter(
             self.embedding.loc[order, "umap1"], self.embedding.loc[order, "umap2"],
             c=self.ligands.loc[order, column], s=POINT_SIZE, alpha=POINT_ALPHA,
@@ -343,74 +372,122 @@ class Eda():
         )
         ax.figure.colorbar(ScalarMappable(points.norm, points.cmap), ax=ax,
                            label=LABEL_AXIS, extend="both")
+        ax.set(xlabel="UMAP 1", ylabel="UMAP 2")
+
+    def umap_labels(self, column: str = "labels") -> Axes:
+        """
+        The same map coloured by affinity, median across constructs. If potency
+        tracks region rather than scattering through it, a random split hands the
+        model test answers it can reach by similarity alone; if it scatters, the
+        structure-activity relationship is steep and the scaffold split is hard.
+
+        Parameters
+        ----------
+        column : str
+            Label column to colour by.
+
+        Returns
+        -------
+        Axes
+            The map's axes.
+        """
+        _, ax = plt.subplots()
+        self._draw_labels(ax, column)
         return self._save_umap(
             ax, column, len(self.embedding), f"coloured by {LABEL_AXIS}",
         )
 
-    def _umap_splits(self, method: str, name: str, noun: str) -> np.ndarray:
+    def _draw_split(self, ax: Axes, method: str, distribution: str,
+                    distances: np.ndarray | None) -> None:
         """
-        The map coloured by where each ligand lands, in-distribution on top and
-        out-of-distribution below, one seed per column. What the two rows should
-        show: in-distribution test points scattered through every island, with
-        train alongside them; out-of-distribution test points arriving as whole
-        islands that train never touches.
+        Draw the map coloured by where each ligand lands in one split at
+        SPLIT_SEED. Ligands whose group is smaller than MIN_CLUSTER_SIZE belong
+        to no split and get their own colour. They are drawn rather than hidden
+        because the threshold is only defensible if what it removes is the
+        scattered one-off chemistry it is aimed at, and not a whole region of
+        the map.
 
-        Ligands whose group is smaller than MIN_CLUSTER_SIZE belong to no split
-        and get their own colour. They are drawn rather than hidden because the
-        threshold is only defensible if what it removes is the scattered one-off
-        chemistry it is aimed at, and not a whole region of the map.
+        Parameters
+        ----------
+        ax : Axes
+            Axes to draw into.
+        method : str
+            Grouping the split is built on, one of Splitters' SPLIT_METHODS.
+        distribution : str
+            One of DISTRIBUTIONS.
+        distances : np.ndarray | None
+            Tanimoto distances over the ligands, for Butina; None otherwise.
+        """
+        splitter = Splitters(
+            self.ligands["smiles"], method, distribution, seed=SPLIT_SEED,
+            min_cluster_size=MIN_CLUSTER_SIZE, distances=distances,
+        )
+        # split() deals train, valid, test in that order.
+        assigned = pd.Series(DROPPED, index=self.embedding.index)
+        for split, index in zip(("train", "valid", "test"), splitter.split()):
+            assigned.iloc[index] = split
+        # Drawn in a random order, not split by split: a set drawn last covers
+        # the others wherever they overlap, and an in-distribution split, which
+        # overlaps everywhere, would look like all test.
+        points = self.embedding.sample(frac=1, random_state=SPLIT_SEED)
+        ax.scatter(points["umap1"], points["umap2"], s=POINT_SIZE, alpha=POINT_ALPHA,
+                   c=assigned.loc[points.index].map(SPLIT_COLOURS))
+        ax.set(xlabel="UMAP 1", ylabel="UMAP 2")
+
+    def _umap_splits(self, method: str) -> np.ndarray:
+        """
+        The labels and the splits on one page: the affinity histogram and the
+        map coloured by affinity on top, the in- and out-of-distribution splits
+        on the same map below. Reading down a column says which affinities a
+        held-out island carries. What the bottom row should show:
+        in-distribution test points scattered through every island, with train
+        alongside them; out-of-distribution test points arriving as whole
+        islands that train never touches.
 
         Parameters
         ----------
         method : str
-            Grouping the split is built on, one of Splitters' SPLIT_METHODS.
-        name : str
-            Slug for the figure filename.
-        noun : str
-            What the method groups by, named in the title.
+            Grouping the split is built on, one of Splitters' SPLIT_METHODS;
+            also the figure filename's slug.
 
         Returns
         -------
         np.ndarray
-            The (2, SPLIT_REPLICATES) grid of axes.
+            The (2, 2) grid of axes.
         """
         # Butina reclusters inside every splitter and the distance matrix is
         # nearly all of that cost, so the one Eda already holds over exactly
         # these ligands is handed over instead of being rebuilt per panel.
         distances = self.distances if method == "butina" else None
-        fig, axes = plt.subplots(2, SPLIT_REPLICATES, figsize=SPLIT_FIGSIZE,
-                                 sharex=True, sharey=True)
-        for row, distribution in zip(axes, DISTRIBUTIONS):
-            for ax, seed in zip(row, range(SPLIT_SEED, SPLIT_SEED + SPLIT_REPLICATES)):
-                splitter = Splitters(
-                    self.ligands["smiles"], method, distribution, seed=seed,
-                    min_cluster_size=MIN_CLUSTER_SIZE, distances=distances,
-                )
-                # split() deals train, valid, test in that order.
-                assigned = pd.Series(DROPPED, index=self.embedding.index)
-                for split, index in zip(("train", "valid", "test"), splitter.split()):
-                    assigned.iloc[index] = split
-                # Drawn in a random order, not split by split: a set drawn last
-                # covers the others wherever they overlap, and an in-distribution
-                # split, which overlaps everywhere, would look like all test.
-                points = self.embedding.sample(frac=1, random_state=seed)
-                ax.scatter(points["umap1"], points["umap2"], s=POINT_SIZE,
-                           alpha=POINT_ALPHA,
-                           c=assigned.loc[points.index].map(SPLIT_COLOURS))
-                shares = assigned.value_counts(normalize=True)
-                ax.set_title(f"seed {seed}: " + " / ".join(
-                    f"{split} {shares.get(split, 0):.0%}" for split in SPLIT_COLOURS
-                ), fontsize="small")
-        axes[0, 0].set_ylabel("in-distribution (stratified by group)\nUMAP 2")
-        axes[1, 0].set_ylabel("out-of-distribution (whole groups held out)\nUMAP 2")
-        for ax in axes[1]:
-            ax.set_xlabel("UMAP 1")
+        width, height = plt.rcParams["figure.figsize"]
+        figsize = (SPLITS_SCALE * width, SPLITS_SCALE * height)
+        fig, axes = plt.subplots(2, 2, figsize=figsize, layout="constrained")
+        self._draw_histogram(axes[0, 0])
+        self._draw_labels(axes[0, 1])
+        titles = ("in-distribution", "out-of-distribution")
+        for ax, distribution, title in zip(axes[1], DISTRIBUTIONS, titles):
+            ax.sharex(axes[0, 1])
+            ax.sharey(axes[0, 1])
+            self._draw_split(ax, method, distribution, distances)
+            ax.set_title(title)
+        # Panel letters sit at the panel's top-left, not the axes': x is the
+        # y-label's left edge and y the title line, so they clear the tick
+        # labels and share a row with c and d's titles. Aligning the y-labels
+        # first puts the letters of each column on one vertical line.
+        fig.align_ylabels(axes)
+        for ax, letter in zip(axes.flat, "abcd"):
+            ax.annotate(letter, (0, 1),
+                        xycoords=(ax.yaxis.label, "axes fraction"),
+                        xytext=(0, plt.rcParams["axes.titlepad"]),
+                        textcoords="offset points", va="baseline",
+                        fontsize="large", fontweight="bold")
+        # Below the grid rather than beside the right-hand map: constrained
+        # layout sizes the right margin to its widest item, so a legend there
+        # pushes the colour bar off its map.
         fig.legend(handles=[Patch(color=colour, label=split)
                             for split, colour in SPLIT_COLOURS.items()],
-                   loc="upper right")
-        fig.suptitle(f"{self.target} {noun} splits over chemical space "
-                     f"(ECFP4 UMAP, n={len(self.ligands)} unique ligands)")
-        fig.savefig(self.figure_dir / f"{self.target}_umap_splits_{name}.png",
+                   loc="outside lower center", ncols=len(SPLIT_COLOURS))
+        fig.savefig(self.figure_dir / f"{self.target}_umap_splits_{method}.png",
                     bbox_inches="tight", dpi=DPI)
         return axes
 
@@ -424,24 +501,23 @@ class Eda():
         Returns
         -------
         np.ndarray
-            The (2, SPLIT_REPLICATES) grid of axes.
+            The (2, 2) grid of axes.
         """
-        return self._umap_splits("scaffold", "scaffold", "Bemis-Murcko scaffold")
+        return self._umap_splits("scaffold")
 
     def umap_butina_splits(self) -> np.ndarray:
         """
         Butina splits on the shared map -- the stricter counterpart, since a
         cluster takes a ligand's near analogues out with it whatever their
         scaffold. Splitters clusters at Chemist's own BUTINA_CUTOFF, so unlike
-        the other Butina figures this one has no cutoff to sweep.
+        the other Butina figures this one has no cutoff to sweep or to name.
 
         Returns
         -------
         np.ndarray
-            The (2, SPLIT_REPLICATES) grid of axes.
+            The (2, 2) grid of axes.
         """
-        return self._umap_splits("butina", f"butina_{BUTINA_CUTOFF:.2f}",
-                                 f"Butina {BUTINA_CUTOFF} cluster")
+        return self._umap_splits("butina")
 
     def _grouped_boxplot(self, groups, name, n_groups, column, labelsize):
         """
@@ -562,28 +638,6 @@ if __name__ == '__main__':
     from bertsheep.data import Data
 
     target = "EGFR"
-    data = Data("data/BindingDB_All_202609_tsv/BindingDB_All.tsv", target)
+    data = Data("data/BindingDB_All_202609_tsv/BindingDB_All.tsv", target, mutation='wildtype')
     v = Eda(data._preprocess(), target)
-
-    # visualise IC50
-    v.label_histogram()
-    v.umap_labels()
-    
-    # BM scaffolds
-    v.umap_scaffolds()
-    v.umap_scaffold_size()
-    v.scaffold_coverage()
-    v.label_by_scaffold()
-    
-    # Butina split
-    v.umap_butina()
-    v.umap_butina_size()
-    v.butina_coverage()
-    v.label_by_butina()
-
-    # train/valid/test splits
-    v.umap_scaffold_splits()
     v.umap_butina_splits()
-        
-    # mutations
-    v.label_by_variant()
