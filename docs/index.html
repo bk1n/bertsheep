@@ -145,12 +145,14 @@
 <main>
 <header>
   <h1>bertsheep</h1>
-  <p>Part of my work at Accenture Labs, refactored with Claude Code. Source: <a href="https://github.com/bk1n/bertsheep">github.com/bk1n/bertsheep</a>.</p>
+  <p>Part of my work at Accenture Labs, refactored with Claude Code. Source: <a href="https://github.com/bk1n/bertsheep">bk1n/bertsheep</a>.</p>
 </header>
 
 <section id="summary">
 <h2>Summary</h2>
-<p>Bidirectional encoder representations from transformers (BERT) for binding affinity (ba 🐑) prediction. Fine-tunes the pre-trained language model (<a href="https://arxiv.org/abs/2010.09885">ChemBERTa</a>) on <a href="https://www.bindingdb.org/">binding affinity</a> of compounds to a single target and evaluates generalisation performance.</p>
+<p>Bidirectional encoder representations from transformers (BERT) for binding affinity (baa 🐑) prediction: bertsheep.
+  Evaluates the performance of a fine-tuned pre-trained language model (<a href="https://arxiv.org/abs/2010.09885">ChemBERTa</a>) on <a href="https://www.bindingdb.org/">binding affinity</a> prediction of compounds to a single target. 
+  Investigation into the latent space reveals how the model is reorganised with fine-tuning, highlighting limits of generalisation to unseen compounds.
 </section>
 
 <section id="results">
@@ -164,6 +166,16 @@
 </figure>
 
 <p>Pairwise Nadeau-Bengio corrected p-values, with Holm p-value adjustment, are shown above the boxplots. Out-of-distribution p-values are approximate.</p>
+
+<!--Visualisation of splitting strategies: in-distribution vs out-of-distribution UMAPs-->
+<!--Text on the different splitting strategies-->
+<!--What did we do? How did we split? How did we train?-->
+<!--Results-->
+
+<div class="finding">
+  <strong>Shifts in latent space show how the model is reorganised.</strong>
+  The latent space is reorganised around affinity (Figure ).
+</div>
 
 <div class="finding">
   <strong>ChemBERTa learns more than cluster identity.</strong>
