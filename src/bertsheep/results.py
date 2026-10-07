@@ -75,21 +75,9 @@ RMSE_AXIS = f"RMSE, {LABEL_AXIS}"
 # while at least this share of an arm's seeds are still training; past it the
 # curve would be the few longest runs, not the arm.
 SURVIVOR_SHARE = 0.3
-Q1_FIGSIZE = (12, 8)
-# Boxes need less room than curves over tens of epochs, but enough that four
-# arm names fit under them.
-Q1_WIDTH_RATIOS = (2, 3)
-# Each seed's test RMSE is drawn over its box, coloured by how close that
-# seed's test set sits to its train set. Single-hue so it reads as magnitude,
-# and neither blue, orange nor plasma, which already mean an arm or affinity.
-SIMILARITY_CMAP = "Purples"
-SIMILARITY_AXIS = "Median test-to-train nearest-neighbour Tanimoto"
-# Boxes faded so the seed points on them carry the colour.
-BOX_ALPHA = 0.4
+Q1_FIGSIZE = (16, 7.5)
+SIMILARITY_AXIS = "Median Tanimoto similarity (test vs train)"
 SEED_POINT_SIZE = 20
-# Horizontal spread of a box's points, in box widths either side of centre.
-JITTER = 0.15
-JITTER_SEED = 0
 # Arms tested against each other, in box order. "mean" is left out: every model
 # beats it by a mile, and out-of-distribution it scores exactly as the cluster
 # mean does, so it adds tests to the Holm family without adding information.
@@ -367,7 +355,7 @@ class Results:
             ax.text((pair.left + pair.right) / 2, y, pair.stars, ha="center",
                     va="bottom", fontsize="small")
 
-    def _rmse_panel(self, ax: plt.Axes, distribution: str, norm: Normalize,
+    def _rmse_panel(self, ax: plt.Axes, distribution: str,
                     comparisons: pd.DataFrame) -> None:
         """
         Test RMSE per arm over the seeds on one distribution, each box in its
@@ -376,20 +364,12 @@ class Results:
         comparing them. Brackets above the boxes give each pair's adjusted
         significance.
 
-        Every seed is also a point on its arm's box, coloured by its split's
-        similarity. A seed's split is shared by every arm, so one colour
-        recurring high or low in every box shows that the split, not the model,
-        set the score. The points include the outliers, so the boxes draw no
-        fliers of their own.
-
         Parameters
         ----------
         ax : plt.Axes
             Axes to draw on.
         distribution : str
             One of DISTRIBUTIONS.
-        norm : Normalize
-            Similarity colour scale, shared by both distributions.
         comparisons : pd.DataFrame
             From comparisons(), passed in so the tests run once per figure
             rather than once per panel.
@@ -400,27 +380,22 @@ class Results:
         boxes = ax.boxplot(
             [group["test_rmse"] for group in groups],
             tick_labels=[ARM_LABELS[arm] for arm in COMPARED_ARMS], patch_artist=True,
-            showfliers=False, medianprops={"color": "black"},
+            medianprops={"color": "black"},
         )
         for box, arm in zip(boxes["boxes"], COMPARED_ARMS):
-            box.set(facecolor=ARM_COLOURS[arm], alpha=BOX_ALPHA)
-        rng = np.random.default_rng(JITTER_SEED)
-        similarity = self.similarity.loc[distribution]
-        for position, group in enumerate(groups, start=1):
-            ax.scatter(position + rng.uniform(-JITTER, JITTER, len(group)),
-                       group["test_rmse"], c=group["seed"].map(similarity),
-                       cmap=SIMILARITY_CMAP, norm=norm, s=SEED_POINT_SIZE,
-                       edgecolors="black", linewidths=0.5, zorder=3)
+            box.set_facecolor(ARM_COLOURS[arm])
         self._brackets(ax, comparisons.loc[distribution], scores["test_rmse"].max())
         ax.set(title=f"{distribution}-distribution", ylabel=f"Test {RMSE_AXIS}")
 
     def q1(self) -> Path:
         """
-        The report's Question 1 figure: one row per distribution, test RMSE boxes
-        on the left and RMSE curves on the right. Each column shares its y axis, so
-        the in/out gap -- how much of an arm's score depends on having seen the
-        scaffold series -- reads straight down it. The boxes' seed points share
-        one similarity colour bar.
+        The report's Question 1 figure: one row per distribution, with test
+        RMSE boxes, test RMSE against split similarity, and RMSE curves. The
+        box and curve columns share their y axes, so the in/out gap -- how much
+        of an arm's score depends on having seen the scaffold series -- reads
+        straight down them. The similarity column does not: in- and
+        out-of-distribution similarities barely overlap, so a common scale
+        would squash each cloud into a corner.
 
         Returns
         -------
@@ -428,25 +403,54 @@ class Results:
             The saved figure.
         """
         histories = self._surviving()
-        # One scale over both distributions, so out's lower similarity shows.
-        norm = Normalize(self.similarity.min(), self.similarity.max())
         comparisons = self.comparisons()
-        fig, axes = plt.subplots(len(DISTRIBUTIONS), 2, figsize=Q1_FIGSIZE,
-                                 sharey="col", width_ratios=Q1_WIDTH_RATIOS,
+        scores = self.df[self.df["arm"].isin(COMPARED_ARMS)].join(
+            self.similarity.rename("similarity"), on=["distribution", "seed"])
+        fig, axes = plt.subplots(len(DISTRIBUTIONS), 3, figsize=Q1_FIGSIZE,
                                  layout="constrained")
-        for (box_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
-            self._rmse_panel(box_ax, distribution, norm, comparisons)
+        axes[1, 0].sharey(axes[0, 0])
+        axes[1, 2].sharey(axes[0, 2])
+        for (box_ax, similarity_ax, curve_ax), distribution in zip(axes, DISTRIBUTIONS):
+            self._rmse_panel(box_ax, distribution, comparisons)
+            self._similarity_panel(similarity_ax, scores, distribution)
             self._loss_panel(curve_ax, histories, distribution)
-        axes[0, 1].legend()
-        # Under the boxes rather than beside them, where it would take the
-        # width the arm names need.
-        fig.colorbar(ScalarMappable(norm, SIMILARITY_CMAP), ax=axes[:, 0],
-                     location="bottom", label=SIMILARITY_AXIS)
+        # On the out panel, whose bottom left is empty; the in panel has no gap.
+        axes[1, 1].legend(fontsize="small", loc="lower left")
+        axes[0, 2].legend(fontsize="small")
         FIGURE_DIR.mkdir(exist_ok=True)
         path = FIGURE_DIR / f"{self.name}_q1.png"
         fig.savefig(path, dpi=DPI, bbox_inches="tight")
         plt.close(fig)
         return path
+
+    def _similarity_panel(self, ax: plt.Axes, scores: pd.DataFrame,
+                          distribution: str) -> None:
+        """
+        Each seed's test RMSE per arm against its split's similarity, with a
+        least-squares line per arm. A seed's split is shared by every arm, so
+        lines that fall together show the split, not the model, setting the
+        score.
+
+        Parameters
+        ----------
+        ax : plt.Axes
+            Axes to draw on.
+        scores : pd.DataFrame
+            COMPARED_ARMS' rows of the results with a `similarity` column.
+        distribution : str
+            One of DISTRIBUTIONS.
+        """
+        panel = scores[scores["distribution"] == distribution]
+        for arm in COMPARED_ARMS:
+            group = panel[panel["arm"] == arm]
+            ax.scatter(group["similarity"], group["test_rmse"], s=SEED_POINT_SIZE,
+                       color=ARM_COLOURS[arm], edgecolors="black", linewidths=0.5,
+                       label=ARM_LABELS[arm], zorder=3)
+            fit = np.polyfit(group["similarity"], group["test_rmse"], 1)
+            x = np.sort(group["similarity"])
+            ax.plot(x, np.polyval(fit, x), color=ARM_COLOURS[arm])
+        ax.set(title=f"{distribution}-distribution", xlabel=SIMILARITY_AXIS,
+               ylabel=f"Test {RMSE_AXIS}")
 
     @cached_property
     def config(self) -> dict:

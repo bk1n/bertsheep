@@ -23,6 +23,7 @@
     - [ ] The Nadeau–Bengio correction is only an approximation for the out-of-distribution (Butina scaffold) splits. Its `n2 / n1` overlap term assumes random resplits of a fixed size, but scaffold splits hold out whole clusters (not random molecules) and vary `n_test` by seed (708–2250 on EGFR), so `_pairwise` averages the ratio over seeds. The report labels the out-of-distribution p-values approximate; a proper fix is a scaffold-aware test (e.g. a bootstrap over clusters)
     - [x] Regenerate `figures/*_q1.png` so its brackets use the corrected test
 - [x] To the boxplots, add points coloured/filled by the median tanimoto similarity of training+test sets (`Results.similarity`: median over test of each molecule's nearest-train-neighbour similarity)
+    - [x] Replaced by a scatter of test RMSE against that similarity, as q1's middle column with free axes per distribution (`Results._similarity_panel`)
     - [ ] Check this is working as intended  
 - [x] GitHub actions + pytest on every push plus a badge
 - [x] If we switched targets, mutations, etcetera - would this repo function as expected?
