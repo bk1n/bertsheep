@@ -26,6 +26,15 @@ e.g. whilst the following will do the same for BRAF with V600E mutation:
 uv run bertsheep BRAF --mutation V600E --train --results
 ```
 
+Four targets, including EGFR, are currently registered for model training:
+
+| Command | Ligands | Butina clusters of 10+ | Example mutation |
+|---|---|---|---|
+| EGFR | 11,056 | 219 | L858R,T790M |
+| JAK2 | 10,804 | 158 |  |
+| BRAF | 3,048 | 37 | V600E |
+| LRRK2 | 1,458 | 28 | G2019S |
+
 ## Setup
 Download and unzip `BindingDB_All_202609_tsv` from BindingDB into `data/`.
 The target frame is cached to `out/.cache/` after the first scan of the dump, so the first run takes a few minutes.
