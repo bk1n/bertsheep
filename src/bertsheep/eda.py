@@ -14,7 +14,7 @@ from bertsheep.chemistry import BUTINA_CUTOFF, Chemist
 from bertsheep.data import CACHE_DIR
 from bertsheep.splitters import DISTRIBUTIONS, SPLIT_SEED, Splitters
 
-FIGURE_DIR = Path("figures/eda")
+FIGURE_DIR = Path("docs/figures/eda")
 UMAP_NEIGHBOURS = 15
 UMAP_MIN_DIST = 0.4
 UMAP_SEED = 444

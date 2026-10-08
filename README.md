@@ -21,6 +21,11 @@ e.g. the following will fine-tune a model on EGFR (wildtype) and generate result
 uv run bertsheep EGFR --train --results
 ```
 
+e.g. whilst the following will do the same for BRAF with V600E mutation:
+```
+uv run bertsheep BRAF --mutation V600E --train --results
+```
+
 ## Setup
 Download and unzip `BindingDB_All_202609_tsv` from BindingDB into `data/`.
 The target frame is cached to `out/.cache/` after the first scan of the dump, so the first run takes a few minutes.

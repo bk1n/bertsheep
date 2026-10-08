@@ -145,58 +145,74 @@
 <main>
 <header>
   <h1>bertsheep</h1>
-  <p>Part of my work at Accenture Labs, refactored with Claude Code. Source: <a href="https://github.com/bk1n/bertsheep">bk1n/bertsheep</a>.</p>
+  <p>
+    Part of my work at Accenture Labs, code refactored with Claude Code, all text written by me. Source: <a href="https://github.com/bk1n/bertsheep">bk1n/bertsheep</a>.
+  </p>
 </header>
 
-<section id="summary">
-<h2>Summary</h2>
-<p>Bidirectional encoder representations from transformers (BERT) for binding affinity (baa 🐑) prediction: bertsheep.
-  Evaluates the performance of a fine-tuned pre-trained language model (<a href="https://arxiv.org/abs/2010.09885">ChemBERTa</a>) on <a href="https://www.bindingdb.org/">binding affinity</a> prediction of compounds to a single target. 
-  Investigation into the latent space reveals how the model is reorganised with fine-tuning, highlighting limits of generalisation to unseen compounds.
-</section>
+<section id="Overview">
+<h2>Overview</h2>
+<p>
+  Model performance in chemoinformatics is strongly associated with similarity of compounds in training and test sets. Compounds sharing similar structures are likely to have similar physicochemical properties, and are generally expected to bind to proteins with similar affinity.
+  Therefore, robust splitting approaches are necessary to determine the true generalisation performance of models to out-of-distribution compounds. 
+  Several have been developed with varying degrees of stringency (see <a href="https://deepchem.readthedocs.io/en/latest/api_reference/splitters.html">here</a>).
+  <br>
+  Here, Butina splitting is used to generate clusters of compounds which are then split into train/test/validation based on two arms: in-distribution and out-of-distribution.
+  The first arm creates a training set that is structurally similar to the test/validation splits, whilst the out-of-distribution arm create a split that is structurally diverse.
+</p>  
+<p>
+  To evaluate this generalisation performance, we fine-tune (<a href="https://arxiv.org/abs/2010.09885">ChemBERTa</a>) on these splits, and compared the performance to a prediction of the mean of each cluster, a simple baseline (XGBoost trained on ECFP4 fingerprints), and the frozen pre-trained model.
+  <br>
+  Secondly, we map the latent space of each encoder layer to visualise how the compounds shift relative to each other during fine-tuning, giving us insight to what the model is able to learn and what it cannot.
+</p>
 
-<section id="results">
-<h2>Results</h2>
+<h3 id="q1">Visualising chemical space</h3>
+<p>
+  Figure 1b shows us how affinity is related, as expected, to compound structure with several clear clusters of strongly and weakly binding compounds apparent.
+  This reinforces the need for structurally-aware splitting.
+  Figure 1c and 1d visualise the train/validation/test splits for in-distribution and out-of-distribution splitting approaches, respectively, showing how the latter selects structurally diverse compounds for each split.
+</p>
+
+<figure style="max-width: 50vw; margin: 0 auto;">
+  <img src="figures/eda/EGFR_umap_splits_butina.png" alt="" loading="lazy">
+  <figcaption><strong>Figure 1:</strong> (a) Histogram of IC50 labels. (b) UMAP of ECFP4 fingerprints, coloured by IC50. (c, d) As (b), coloured by train/validation/test split of Butina clusters for in-distribution and out-of-distribution arms.</figcaption>
+</figure>
 
 <h3 id="q1">Model performance</h3>
+<p>
+  ChemBERTa-10M-MTR is a small transformer model with 3-encoder layers and has been pre-trained through multi-task regression (MTR) on RDKit generated physicochemical properties of compounds. For both fine-tuned and frozen models, we replace the model head with a simple regression head. All models are trained on train/validation splits with Optuna using a TPESampler and the process is repeated 30 times, evaluating performance on the held-out test set.
+</p>
 
 <figure>
   <img src="figures/EGFR-wildtype_q1.png" alt="Question 1: test RMSE per arm (left), test RMSE against test-to-train similarity per seed (middle) and RMSE curves (right), in- and out-of-distribution" loading="lazy">
-  <figcaption>Test RMSE per arm (left); test RMSE per seed against its split's median test-to-train nearest-neighbour Tanimoto similarity, with a least-squares line per arm (middle; axes differ between rows); and RMSE curves (right), in- and out-of-distribution.</figcaption>
+  <figcaption><strong>Figure 2:</strong> (a) Test RMSE per arm showing pairwise Nadeau-Bengio corrected p-values with Holm p-value adjustment. (b) Test RMSE per seed against its split's median Tanimoto similarity to training set, with a least-squares line per arm; axes differ between rows. (c) RMSE curves. Top row in-distribution, bottom row out-of-distribution.</figcaption>
 </figure>
 
-<p>Pairwise Nadeau-Bengio corrected p-values, with Holm p-value adjustment, are shown above the boxplots. Out-of-distribution p-values are approximate.</p>
+<p>
+  All models beat the simple cluster mean baseline in both arms, suggesting that the models were able to learn more than simple cluster identity (Figure 2a).
+  In-distribution, XGBoost trained on ECFP4 fingerprints outperformed both pretrained and fine-tuned ChemBERTa models, but this difference was not significant out-of-distribution.
+  Notably, out-of-distribution performance was strongly associated with the structural similarity of the train and test sets, suggesting, even with Butina splitting, some leakage is occuring (Figure 2b).
+  This was slightly more pronounced for the XGBoost model, suggesting that this model may be less strong in generalising to compounds far away in chemical space.
+  Likewise, this suggests that ChemBERTa may yield better results than XGBoost on truly out-of-distribution compounds with low structural similarity to the training set, but further work is required to validate that.
+</p>
 
-<!--Visualisation of splitting strategies: in-distribution vs out-of-distribution UMAPs-->
-<!--Text on the different splitting strategies-->
-<!--What did we do? How did we split? How did we train?-->
-<!--Results-->
+<p>
+  Loss curves match these findings, showing strong overfitting to the training set in both in and out-of-distribution arms. Test performance gains from training are limited to the first few epochs in the out-of-distribution arm.
+</p>
 
-<div class="finding">
-  <strong>Shifts in latent space show how the model is reorganised.</strong>
-  The latent space is reorganised around affinity (Figure ).
-</div>
-
-<div class="finding">
-  <strong>ChemBERTa learns more than cluster identity.</strong>
-  In-distribution performance of all models was higher than the cluster mean, suggesting the models are successfully learning features of the compounds that predict binding to EGFR.
-</div>
-<div class="finding">
-  <strong>XGBoost on fingerprints beats pre-trained and fine-tuned ChemBERTa.</strong>
-  In-distribution and out-of-distribution performance is higher for XGBoost trained on fingerprints versus ChemBERTa trained on SMILES. Other authors have observed <a href="https://www.nature.com/articles/s41467-023-41948-6">this</a>, and many reasons for weaker performance exist, including negative transfer and limited dataset size.
-</div>
-<div class="finding">
-  <strong>Fine-tuning exhibits similar performance to the pre-trained model.</strong>
-  Fine-tuning shows similar performance to the pre-trained model with a small advantage in-distribution (fine-tuned beats pre-trained in 20/30 seeds).
-  This is potentially because the MTR pre-training method, which regresses ~200 RDKit descriptors, already learns affinity-relevant descriptors in the frozen latent space.
-</div>
-<div class="finding">
-  <strong>Out-of-distribution, which clusters are held out matters more than which model is used.</strong>
-  The seeds are strongly correlated across arms. Seed 24 is the worst seed for XGBoost, pre-trained and fine-tuned (RMSE 3.55, 3.25, 3.62), where XGBoost and fine-tuning do worse than predicting the training mean (3.46), and seed 17 is the best for XGBoost and fine-tuned (1.96, 2.09). The spread across seeds (SD 0.31–0.38) is about three times the gap between the best and worst model (0.13). The test set also ranges from 708 to 2,250 molecules because clusters vary in size. A single held-out split would give a misleading ranking of these models.
-</div>
-<p>The wide performance range out-of-distribution suggests that some clusters may be easier to predict than others; performance tracks across arms by seed (i.e. some seeds are easier to predict than others out-of-distribution).</p>
+<p>
+  The equivalent performance between pretrained and fine-tuned arms suggest the pretrained model is already performing well prior to fine-tuning, suggesting the models weights are somewhat optimised for prediction of binding affinity. This is inline with the MTR pretraining approach. Future work may look to compare ChemBERTa models pretrained with masked-language modelling (MLM) to MTR.
+</p>
 
 <h3 id="q2">Latent space with fine-tuning</h3>
+
+<p>
+  We can visualise how the latent space is reorganised with fine-tuning. This can help in assessing how the different compounds move in and out-of-distribution and can help inform future training strategies. For example, it can help to assess how much the encoders are shifting relative to each other during fine-tuning, guiding use of fine-tuning strategies such as layer-wise learning rate decay (LLRD) or reinitialisation of encoder layers (part of my work at Accenture was assessing these strategies on the larger variants of ChemBERTa).
+</p>
+
+<p>
+  Press play to see how the latent space is reorganised, in and out-of-distribution, across the different encoding layers during fine-tuning:
+</p>
 
 <div class="controls" aria-label="Video controls">
   <button type="button" id="play">Play</button>
@@ -205,42 +221,43 @@
 </div>
 
 <figure>
-  <video class="synced" src="figures/EGFR-wildtype_q2_label.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by affinity"></video>
-  <figcaption>Aligned UMAP of the fine-tuned model's latent space over training, coloured by affinity.</figcaption>
-</figure>
-<figure>
-  <video class="synced" src="figures/EGFR-wildtype_q2_cluster.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over training, coloured by cluster"></video>
-  <figcaption>Aligned UMAP of the fine-tuned model's latent space over training, coloured by cluster.</figcaption>
+  <video class="synced" src="figures/EGFR-wildtype_q2_in.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over in-distribution training, coloured by affinity and by split"></video>
+  <figcaption>Aligned UMAP of the fine-tuned model's latent space over in-distribution training, coloured by affinity (top) and by split (bottom).</figcaption>
 </figure>
 
-<ul>
-  <li><strong>The embedding layer barely moves.</strong> In both distributions its layout is nearly the same at the pre-trained weights and at the last epoch.
-  Fine-tuning changes the encoder layers, not the token embeddings.</li>
-  <li><strong>The last encoder layer reorganises around affinity.</strong> In-distribution, weak binders (dark) collect on one side of encoder layer 3 and potent ones (yellow/orange) on the other by the selected epoch. The same starts to happen out-of-distribution.</li>
-  <li><strong>In-distribution, test molecules move with their training neighbours.</strong> In the above figures, clusters are coloured if they are part of the test set. During in-distribution training, these clusters are associated with training compounds, so the test clusters are carried along into the affinity-sorted layout.</li>
-  <li><strong>Out-of-distribution, the training molecules rearrange while the held-out molecules stay close to where they started.</strong>
-  During out-of-distribution training, the training molecules are still reorganised in the last layer to an affinity-sorted layout. In contrast, the test clusters remain relatively static, moving little and not following the training molecules. The model is not able to learn generalisable features that transfer to these clusters. This highlights the poor performance on out-of-distribution compounds and weak generalisation.</li>
-</ul>
+<p>
+  The first figure shows how the model trains on in-distribution compounds.
+  We can see how the embedding layer doesn't move much at all compared to the top layers (2 and 3) of the model. This is as expected: the bottom layers likely encode information about general chemical structure and SMILES sequences whilst top layers encode specifics about properties relevant for binding affinity prediction.
+  The top layer clearly reorganises around affinity as loss drops and training/validation/test compounds shift together in the latent space, showing how the model is effectively able to reorganise it's weights to predict binding affinity of 'unseen' in-distribution compounds.
+</p>
+
+<figure>
+  <video class="synced" src="figures/EGFR-wildtype_q2_out.mp4" muted playsinline loop preload="auto" aria-label="Question 2: aligned UMAP of the fine-tuned model's latent space over out-of-distribution training, coloured by affinity and by split"></video>
+  <figcaption>Aligned UMAP of the fine-tuned model's latent space over out-of-distribution training, coloured by affinity (top) and by split (bottom).</figcaption>
+</figure>
+
+<p>
+  In the out-of-distribution model, fine-tuning shifts the training points as above (we can see as well, that training loss is comparable across both in and out-of-distribution runs) and the latent space is again reorganised roughly around affinity.
+  In contrast to in-distribution fine-tuning, however, the test and validation points remain relatively static and, in general, do not move with the training points, suggesting that the model's training does not generalise well to out-of-distribution test/validation compounds.
+</p>
+
+</section>
+
+<section id="test">
+  <h2>Try it</h2>
+  <p>
+    Generate this report for yourself by going to <a href="github.com/bk1n/bertsheep">bk1n/bertsheep</a>, cloning the repo, downloading the data, and fine-tuning on a local GPU.  
+  </p>
+  
+  <p>
+    Currently, up four targets are supported: EGFR, JAK2, BRAF, and LRRK2. <br> Additionally, you can try to predict binding affinity to mutated versions of these proteins.
+  </p>
 </section>
 
 <section id="data">
 <h2>Data</h2>
-<p>Labels come from the BindingDB dump <code>BindingDB_All_202609_tsv</code>. Four targets are registered for training. They were chosen on the number of Butina clusters of 10 or more, not on raw ligand count, because an out-of-distribution split needs enough whole clusters to hold out. All results here are for wild-type EGFR.</p>
+<p>Labels come from the BindingDB dump <code>BindingDB_All_202609_tsv</code>. The target is wild-type human EGFR (UniProt <code>EGFR_HUMAN</code>, P00533). The dump is preprocessed as follows:</p>
 
-<div class="table-wrap">
-<table>
-  <caption>Registered targets</caption>
-  <thead><tr><th>Target</th><th class="num">Ligands</th><th class="num">Butina clusters of 10+</th><th>Example mutation</th></tr></thead>
-  <tbody>
-    <tr><td>EGFR</td><td class="num">11,056</td><td class="num">219</td><td>L858R,T790M</td></tr>
-    <tr><td>JAK2</td><td class="num">10,804</td><td class="num">158</td><td></td></tr>
-    <tr><td>BRAF</td><td class="num">3,048</td><td class="num">37</td><td>V600E</td></tr>
-    <tr><td>LRRK2</td><td class="num">1,458</td><td class="num">28</td><td>G2019S</td></tr>
-  </tbody>
-</table>
-</div>
-
-<p>The target is wild-type human EGFR (UniProt <code>EGFR_HUMAN</code>, P00533). The dump is preprocessed as follows:</p>
 <div class="table-wrap">
 <table>
   <caption>EGFR preprocessing</caption>
@@ -254,7 +271,7 @@
   </tbody>
 </table>
 </div>
-<p>Labels are IC50 in nM, transformed to −ln IC50, i.e. the natural log, not pIC50. All RMSEs in this report are in those units.</p>
+<p>Labels are IC50 in nM, transformed to -ln IC50.</p>
 </section>
 
 <section id="methods">
@@ -265,8 +282,8 @@
 <table>
   <thead><tr><th>Arm</th><th>What it is</th></tr></thead>
   <tbody>
-    <tr class="reference"><td>Training mean</td><td>Predicts the training-set mean for every molecule: the floor every model has to clear.</td></tr>
-    <tr class="reference"><td>Cluster mean</td><td>Predicts the training mean of each molecule's Butina cluster: what knowing the series alone is worth. Out of distribution no test cluster is in training, so it falls back to the training mean and scores identically to it.</td></tr>
+    <tr class="reference"><td>Training mean</td><td>Predicts the training-set mean for every molecule.</td></tr>
+    <tr class="reference"><td>Cluster mean</td><td>Predicts the training mean of each molecule's Butina cluster. Out of distribution, this is just the training mean.</td></tr>
     <tr><td>XGBoost + ECFP4</td><td>XGBoost regressor on 1024-bit Morgan fingerprints (radius 2). Up to 5,000 trees, with early stopping after 50 rounds without improvement on validation.</td></tr>
     <tr><td>Pre-trained</td><td><a href="https://huggingface.co/DeepChem/ChemBERTa-10M-MTR">DeepChem/ChemBERTa-10M-MTR</a> with its encoder frozen; only the regression head is trained.</td></tr>
     <tr><td>Fine-tuned</td><td>The same model with the whole network trained (plain AdamW, no layerwise LR decay or layer reinitialisation).</td></tr>
@@ -321,18 +338,13 @@
 </div>
 
 <h3 id="statistics">Statistics</h3>
-<p>Arms are compared pairwise on per-seed test RMSE using Nadeau and Bengio's (2003) corrected resampled paired t-test. Every arm sees the same split for a given seed, so pairing on seed removes how hard each split is.</p>
-<p>The correction is needed because the seeds are resplits of one dataset, not independent datasets. Their training sets overlap, so the per-seed differences are positively correlated. The plain paired t-test's variance, σ²/J, would therefore overstate certainty. Nadeau–Bengio replaces it with (1/J + n<sub>test</sub>/n<sub>train</sub>) σ² and compares against t with J − 1 degrees of freedom.</p>
+<p>Arms are compared pairwise on per-seed test RMSE using Nadeau and Bengio's (2003) corrected resampled paired t-test.</p>
 <p>p-values are adjusted for multiple comparisons with Holm's method, separately within each distribution. Out of distribution, the test-set size varies by seed and the ratio is averaged over seeds, so those p-values are approximate.</p>
 
 <h3 id="compute">Compute</h3>
 <p>All runs were trained locally on a single NVIDIA RTX 4060. bf16 autocast (forward pass only, with weights and optimiser state in fp32) gave roughly a 2× speed-up. A median run takes about 40 s in distribution and 15–20 s out of distribution for the ChemBERTa arms, and under 10 s for XGBoost.</p>
 </section>
 
-<section id="reproduce">
-<h2>Reproduce</h2>
-<p>Setup, the BindingDB download and the training commands are in the <a href="https://github.com/bk1n/bertsheep#running">README</a>. <code>uv run bertsheep EGFR --train --results</code> reruns the tuning, the 30-seed grid and the figures in this report.</p>
-</section>
 </main>
 </div>
 

@@ -165,7 +165,6 @@ def trajectories(results_path: Path) -> list[br.Trajectory]:
     molecules = pd.DataFrame({
         "split": np.repeat(["train", "valid", "test"], n // 3),
         "labels": rng.normal(size=n),
-        "cluster": rng.integers(0, 50, n),
     })
     return [
         br.Trajectory(distribution, molecules,
@@ -194,16 +193,16 @@ def test_status_marks_start_selection_and_stop(
     assert "stopped after epoch 9" in results._status(trajectory, EPOCHS - 1)
 
 
-@pytest.mark.parametrize("colour", br.COLOURINGS)
-def test_q2_writes_video(
+def test_q2_writes_a_video_per_distribution(
         trajectories: list[br.Trajectory], results_path: Path, tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch, colour: str) -> None:
+        monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(br, "FIGURE_DIR", tmp_path / "figures")
     monkeypatch.setattr(br, "HOLD_FRAMES", 1)
     monkeypatch.setattr(br, "TWEEN_FRAMES", 1)
     monkeypatch.setattr(br, "DPI", 50)
     results = Results(results_path)
     results.trajectories = trajectories  # stands in for the cached property
-    path = results.q2_video(colour)
-    assert path.parent == tmp_path / "figures"
-    assert path.stat().st_size > 0
+    paths = results.q2()
+    assert [path.name for path in paths] == [
+        f"{results.name}_q2_{distribution}.mp4" for distribution in DISTRIBUTIONS]
+    assert all(path.stat().st_size > 0 for path in paths)

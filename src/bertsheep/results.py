@@ -12,8 +12,9 @@ import umap
 import imageio_ffmpeg
 from matplotlib.animation import FFMpegWriter, FuncAnimation
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import ListedColormap, Normalize
+from matplotlib.colors import Normalize, to_rgba_array
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 from scipy import stats
 from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -22,11 +23,10 @@ from statsmodels.stats.multitest import multipletests
 from bertsheep.chemistry import Chemist
 from bertsheep.data import CACHE_DIR, Data
 from bertsheep.eda import (
-    GREY,
     LABEL_AXIS,
     LABEL_CLIP,
     LABEL_CMAP,
-    TOP_CLUSTERS,
+    SPLIT_COLOURS,
     UMAP_MIN_DIST,
     UMAP_NEIGHBOURS,
     UMAP_SEED,
@@ -98,7 +98,7 @@ BRACKET_STEP = 0.2
 LATENT_DIR = Path("out/latent")
 # Hidden-state slices drawn: the embedding layer, the middle and the last of
 # ChemBERTa-10M-MTR's three encoder layers -- the report's first, middle, last.
-VIDEO_LAYERS = (0, 2, 3)
+VIDEO_LAYERS = (1, 2, 3)
 LAYER_LABELS = {0: "Embedding layer", 1: "Encoder layer 1",
                 2: "Encoder layer 2", 3: "Encoder layer 3"}
 # Share of each split's molecules embedded and aligned. Aligned UMAP's cost
@@ -114,24 +114,28 @@ LATENT_METRIC = "cosine"
 TWEEN_FRAMES = 4
 HOLD_FRAMES = 12  # repeats of the first and last frame, so a looping video pauses on both
 VIDEO_FPS = 10
-VIDEO_DPI = 100  # served by GitHub Pages, so kept to a few MB
+VIDEO_DPI = 200  # served by GitHub Pages, so kept to a few MB
 # The pip-installed binary, so the videos need no system ffmpeg.
 plt.rcParams["animation.ffmpeg_path"] = imageio_ffmpeg.get_ffmpeg_exe()
 VIDEO_FIGSIZE = (17, 8)
 VIDEO_WIDTH_RATIOS = (1, 1, 1, 1.2)
-# Test molecules were never trained on, so they are drawn larger and opaque
-# over the faint train and valid molecules: generalisation reads as the held-out
-# points landing among training points of their colour.
+# In the affinity row, test molecules were never trained on, so they are drawn
+# larger and opaque over the faint train and valid molecules: generalisation
+# reads as the held-out points landing among training points of their colour.
 TEST_POINT_SIZE = 10
 TEST_ALPHA = 0.8
-# Butina's cluster IDs are ranked by size, so ID n is the n-th largest and
-# indexes this map directly; every ID from TOP_CLUSTERS on shares the grey.
-CLUSTER_CMAP = ListedColormap(
-    [*plt.get_cmap("tab20").colors, *plt.get_cmap("tab20b").colors][:TOP_CLUSTERS]
-    + [GREY]
-)
-COLOURINGS = {"label": "affinity",
-              "cluster": f"Butina cluster (top {TOP_CLUSTERS}, grey = other)"}
+# The split row draws every molecule at one alpha, in a seeded shuffle:
+# in-distribution the test set is spread among train, so test drawn on top -- or
+# any split drawn last -- would hide the others, and the splits could not be
+# seen moving together. Marker area falls with a split's size, so each split
+# puts about the same ink on the page: the smallest gets SPLIT_MAX_SIZE, and
+# train, ~5-8x the others, would otherwise swamp them by numbers alone.
+SPLIT_ALPHA = 0.6
+SPLIT_MAX_SIZE = 16
+SHUFFLE_SEED = 0
+# A video's rows, top to bottom: the same molecules at the same coordinates,
+# so a point's affinity above can be read against its split below.
+COLOURINGS = {"label": "affinity", "split": "split"}
 
 
 class Trajectory(NamedTuple):
@@ -143,8 +147,8 @@ class Trajectory(NamedTuple):
     distribution : str
         One of DISTRIBUTIONS.
     molecules : pd.DataFrame
-        Every molecule the run was split over, with `split`, `labels` and
-        `cluster` columns, in the order of `coords`' molecule axis.
+        The embedded molecules, with `split` and `labels` columns, in the
+        order of `coords`' molecule axis.
     coords : np.ndarray
         Aligned UMAP coordinates, shape (len(VIDEO_LAYERS), epochs, molecules, 2).
     history : pd.DataFrame
@@ -417,6 +421,15 @@ class Results:
         # On the out panel, whose bottom left is empty; the in panel has no gap.
         axes[1, 1].legend(fontsize="small", loc="lower left")
         axes[0, 2].legend(fontsize="small")
+        # Placed as in Eda._umap_splits: x at the y-label's left edge, y on the title
+        # line. Only the top row, as the letters name columns, not panels.
+        fig.align_ylabels(axes)
+        for ax, letter in zip(axes[0], "abc"):
+            ax.annotate(letter, (0, 1),
+                        xycoords=(ax.yaxis.label, "axes fraction"),
+                        xytext=(0, plt.rcParams["axes.titlepad"]),
+                        textcoords="offset points", va="baseline",
+                        fontsize="large", fontweight="bold")
         FIGURE_DIR.mkdir(exist_ok=True)
         path = FIGURE_DIR / f"{self.name}_q1.png"
         fig.savefig(path, dpi=DPI, bbox_inches="tight")
@@ -524,19 +537,6 @@ class Results:
 
         return runs.map(median_nearest)
 
-    def _frame(self) -> pd.DataFrame:
-        """
-        The frame with each molecule's Butina cluster. The clusters come from
-        the same distance matrix Experiment splits with, so they are the
-        groups the out-of-distribution split held out.
-
-        Returns
-        -------
-        pd.DataFrame
-            The frame plus a `cluster` column; 0 is the largest.
-        """
-        return self.frame.assign(cluster=Chemist().butina_clusters(self.distances))
-
     def _coordinates(self, run_dir: Path, smiles: pd.Series,
                      epochs: np.ndarray) -> np.ndarray:
         """
@@ -600,12 +600,11 @@ class Results:
         runs = self.df[(self.df["arm"] == "finetuned") & (self.df["seed"] == VIDEO_SEED)]
         runs = runs.set_index("distribution").loc[list(DISTRIBUTIONS)]
         run_dirs = [Path(run_dir) for run_dir in runs["run_dir"]]
-        frame = self._frame()
         trajectories = []
         for (distribution, run), run_dir in zip(runs.iterrows(), run_dirs):
             molecules = pd.concat(
                 split.sample(frac=SUBSAMPLE, random_state=SUBSAMPLE_SEED).assign(split=name)
-                for name, split in zip(SPLIT_NAMES, split_frames(frame, run_dir))
+                for name, split in zip(SPLIT_NAMES, split_frames(self.frame, run_dir))
             )
             history = pd.read_csv(run_dir / HISTORY)
             coords = self._coordinates(run_dir, molecules["smiles"],
@@ -627,25 +626,38 @@ class Results:
         labels = pd.concat(t.molecules["labels"] for t in self.trajectories)
         return Normalize(*labels.quantile([LABEL_CLIP, 1 - LABEL_CLIP]))
 
-    def _colours(self, trajectory: Trajectory, colour: str) -> np.ndarray:
+    def _style(self, trajectory: Trajectory,
+               colour: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Each molecule's colour, worked out once so a frame only moves points.
+        Each molecule's draw order, colour and size, worked out once so a frame
+        only moves points. The affinity row draws test last, larger and
+        opaque; the split row draws every molecule the same size in a shuffled
+        order, with marker area inversely proportional to its split's size.
 
         Parameters
         ----------
         trajectory : Trajectory
-            Run whose molecules to colour.
+            Run whose molecules to style.
         colour : str
             A key of COLOURINGS.
 
         Returns
         -------
-        np.ndarray
-            RGBA per molecule, shape (molecules, 4).
+        tuple[np.ndarray, np.ndarray, np.ndarray]
+            Molecule indices in draw order, RGBA per molecule with its alpha,
+            shape (molecules, 4), and marker size per molecule.
         """
-        if colour == "label":
-            return plt.get_cmap(LABEL_CMAP)(self._label_norm()(trajectory.molecules["labels"]))
-        return CLUSTER_CMAP(np.minimum(trajectory.molecules["cluster"], TOP_CLUSTERS))
+        if colour == "split":
+            splits = trajectory.molecules["split"]
+            counts = splits.map(splits.value_counts())
+            rgba = to_rgba_array(splits.map(SPLIT_COLOURS), alpha=SPLIT_ALPHA)
+            order = np.random.default_rng(SHUFFLE_SEED).permutation(len(rgba))
+            return order, rgba, (SPLIT_MAX_SIZE * counts.min() / counts).to_numpy()
+        test = (trajectory.molecules["split"] == "test").to_numpy()
+        rgba = plt.get_cmap(LABEL_CMAP)(self._label_norm()(trajectory.molecules["labels"]))
+        rgba[:, 3] = np.where(test, TEST_ALPHA, POINT_ALPHA)
+        order = np.argsort(test, kind="stable")
+        return order, rgba, np.where(test, TEST_POINT_SIZE, POINT_SIZE)
 
     def _at(self, trajectory: Trajectory, layer: int, epoch: float) -> np.ndarray:
         """
@@ -673,7 +685,8 @@ class Results:
         return coords[low] + (step - low) * (coords[high] - coords[low])
 
     def _latent_panel(self, ax: plt.Axes, trajectory: Trajectory, layer: int,
-                      colours: np.ndarray) -> Callable[[float], None]:
+                      style: tuple[np.ndarray, np.ndarray, np.ndarray]
+                      ) -> Callable[[float], None]:
         """
         One layer's latent space for one run, with the limits fixed over every
         epoch so the frame holds still while the points move. UMAP's axes carry
@@ -687,28 +700,23 @@ class Results:
             Run to draw.
         layer : int
             Position in VIDEO_LAYERS.
-        colours : np.ndarray
-            From _colours().
+        style : tuple[np.ndarray, np.ndarray, np.ndarray]
+            From _style().
 
         Returns
         -------
         Callable[[float], None]
             Moves the points to a (fractional) epoch.
         """
-        test = (trajectory.molecules["split"] == "test").to_numpy()
-        context = ax.scatter(*trajectory.coords[layer, 0, ~test].T, s=POINT_SIZE,
-                             c=colours[~test], alpha=POINT_ALPHA, linewidths=0)
-        held_out = ax.scatter(*trajectory.coords[layer, 0, test].T,
-                              s=TEST_POINT_SIZE, c=colours[test],
-                              alpha=TEST_ALPHA, linewidths=0)
+        order, rgba, sizes = style
+        points = ax.scatter(*trajectory.coords[layer, 0, order].T, s=sizes[order],
+                            c=rgba[order], linewidths=0)
         ax.update_datalim(trajectory.coords[layer].reshape(-1, 2))
         ax.autoscale_view()
         ax.set(xticks=[], yticks=[])
 
         def move(epoch: float) -> None:
-            coords = self._at(trajectory, layer, epoch)
-            context.set_offsets(coords[~test])
-            held_out.set_offsets(coords[test])
+            points.set_offsets(self._at(trajectory, layer, epoch)[order])
 
         return move
 
@@ -780,69 +788,75 @@ class Results:
             status += " (selected)"
         return f"{trajectory.distribution}-distribution: {status}"
 
-    def _key(self, fig: Figure, axes: np.ndarray, colour: str) -> None:
+    def _key(self, fig: Figure, axes: np.ndarray, trajectory: Trajectory) -> None:
         """
-        Say what colour and size mean. Affinity gets a colourbar; clusters get
-        none, since their colours are an identity rather than a key -- what
-        the figure shows is whether one cluster stays in one place.
+        Say what each row's colours and the point sizes mean: a colourbar
+        beside the affinity row, and the split legend below the figure, as in
+        Eda._umap_splits, so it does not crowd the colourbar's margin.
 
         Parameters
         ----------
         fig : Figure
             Figure to label.
         axes : np.ndarray
-            The latent-space axes, which the colourbar is set beside.
-        colour : str
-            A key of COLOURINGS.
+            The latent-space axes, one row per COLOURINGS key.
+        trajectory : Trajectory
+            Run the figure draws, named in the title.
         """
-        if colour == "label":
-            fig.colorbar(ScalarMappable(self._label_norm(), LABEL_CMAP), ax=axes,
-                         label=LABEL_AXIS, extend="both", shrink=0.8)
-        fig.suptitle(f"ChemBERTa latent space over fine-tuning (seed {VIDEO_SEED}), "
-                     f"coloured by {COLOURINGS[colour]}; large points are the "
-                     f"test set")
+        fig.colorbar(ScalarMappable(self._label_norm(), LABEL_CMAP), ax=axes[0],
+                     label=LABEL_AXIS, extend="both", shrink=0.8)
+        fig.legend(handles=[Patch(color=SPLIT_COLOURS[split], label=label)
+                            for split, label in SPLIT_LABELS.items()],
+                   loc="outside lower center", ncols=len(SPLIT_LABELS))
+        fig.suptitle(f"ChemBERTa latent space over fine-tuning, "
+                     f"{trajectory.distribution}-distribution (seed {VIDEO_SEED}); "
+                     f"large points in the affinity row are the test set")
 
-    def q2_video(self, colour: str = "label") -> Path:
+    def q2_video(self, trajectory: Trajectory) -> Path:
         """
-        The report's Question 2 animation: rows are distributions, columns the
-        embedding, middle and last layers, plus the loss curve. It starts on
-        the pretrained weights and plays through fine-tuning, so the change
-        each layer undergoes -- and which layers barely move -- is the motion.
-        A run that stops early holds its last epoch while the other plays on.
+        The report's Question 2 animation for one distribution: columns are
+        the embedding, middle and last layers, rows the same layout coloured
+        by affinity and by split, with the loss curve down the right. It
+        starts on the pretrained weights and plays through fine-tuning, so the
+        change each layer undergoes -- and which layers barely move -- is the
+        motion. Every video runs to the longest run's last epoch, holding its
+        own last epoch if it stopped earlier, so the report's synced players
+        stay on the same epoch.
 
         Parameters
         ----------
-        colour : str
-            A key of COLOURINGS.
+        trajectory : Trajectory
+            Run to draw.
 
         Returns
         -------
         Path
             The saved MP4.
         """
-        fig, axes = plt.subplots(len(DISTRIBUTIONS), len(VIDEO_LAYERS) + 1,
-                                 figsize=VIDEO_FIGSIZE, width_ratios=VIDEO_WIDTH_RATIOS,
-                                 layout="constrained")
-        # Only the losses share a scale; each latent panel is its own UMAP.
-        axes[1, -1].sharey(axes[0, -1])
-        moves = []
-        for row, trajectory in zip(axes, self.trajectories):
-            colours = self._colours(trajectory, colour)
-            for i, ax in enumerate(row[:-1]):
-                moves.append(self._latent_panel(ax, trajectory, i, colours))
-            moves.append(self._history_panel(row[-1], trajectory))
-            row[0].set_ylabel(f"{trajectory.distribution}-distribution")
+        fig = plt.figure(figsize=VIDEO_FIGSIZE, layout="constrained")
+        grid = fig.add_gridspec(len(COLOURINGS), len(VIDEO_LAYERS) + 1,
+                                width_ratios=VIDEO_WIDTH_RATIOS)
+        axes = np.array([[fig.add_subplot(grid[row, column])
+                          for column in range(len(VIDEO_LAYERS))]
+                         for row in range(len(COLOURINGS))])
+        loss_ax = fig.add_subplot(grid[:, -1])
+        moves = [self._history_panel(loss_ax, trajectory)]
+        for row, colour in zip(axes, COLOURINGS):
+            style = self._style(trajectory, colour)
+            for i, ax in enumerate(row):
+                moves.append(self._latent_panel(ax, trajectory, i, style))
+            row[0].set_ylabel(f"Coloured by {COLOURINGS[colour]}")
         for ax, layer in zip(axes[0], VIDEO_LAYERS):
             ax.set_title(LAYER_LABELS[layer])
-        axes[0, -1].legend(fontsize="small")
-        self._key(fig, axes[:, :-1], colour)
+        loss_ax.legend(fontsize="small")
+        self._key(fig, axes, trajectory)
 
         last = max(t.history["epoch"].max() for t in self.trajectories)
         epochs = np.r_[np.full(HOLD_FRAMES, -1.0),
                        np.linspace(-1, last, (last + 1) * TWEEN_FRAMES + 1),
                        np.full(HOLD_FRAMES, float(last))]
         FIGURE_DIR.mkdir(exist_ok=True)
-        path = FIGURE_DIR / f"{self.name}_q2_{colour}.mp4"
+        path = FIGURE_DIR / f"{self.name}_q2_{trajectory.distribution}.mp4"
         FuncAnimation(fig, lambda epoch: [move(epoch) for move in moves],
                       frames=epochs).save(path, writer=FFMpegWriter(fps=VIDEO_FPS),
                                           dpi=VIDEO_DPI)
@@ -851,12 +865,12 @@ class Results:
 
     def q2(self) -> list[Path]:
         """
-        Every Question 2 figure: the animation coloured by affinity and by
-        Butina cluster. One trajectory set serves both.
+        Every Question 2 figure: one animation per distribution. The affinity
+        scale is shared, so a colour means the same in both.
 
         Returns
         -------
         list[Path]
-            The saved figures.
+            The saved figures, in DISTRIBUTIONS order.
         """
-        return [self.q2_video(colour) for colour in COLOURINGS]
+        return [self.q2_video(trajectory) for trajectory in self.trajectories]
