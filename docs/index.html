@@ -82,7 +82,26 @@
   tbody tr.reference td { color: var(--muted); }
   figure { margin: 24px 0; }
   figure img, figure video { width: 100%; height: auto; display: block; background: #fff; border-radius: 4px; }
+  figure img, figure video { cursor: zoom-in; }
   figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+  #zoom {
+    inset: 0;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 16px;
+    border: 0;
+    background: transparent;
+    flex-direction: column;
+    gap: 12px;
+    cursor: zoom-out;
+  }
+  #zoom[open] { display: flex; }
+  #zoom::backdrop { background: rgb(0 0 0 / 0.9); }
+  #zoom img, #zoom video { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+  #zoom .controls { position: static; margin: 0 auto; width: 100%; max-width: 900px; cursor: auto; }
   .controls {
     display: flex;
     gap: 12px;
@@ -348,6 +367,8 @@
 </main>
 </div>
 
+<dialog id="zoom" aria-label="Enlarged figure"></dialog>
+
 <script>
   // One control drives both videos: the first is the clock, the second is
   // pulled back to it whenever it drifts by more than a frame or two.
@@ -380,6 +401,34 @@
     rest.forEach(v => {
       if (Math.abs(v.currentTime - lead.currentTime) > 0.15) v.currentTime = lead.currentTime;
     });
+  });
+
+  // Clicking a figure lifts it into a page-sized dialog, bringing the shared
+  // controls along for the videos. The elements are moved rather than cloned so
+  // the sync above keeps driving them; taking them out reflows the page behind,
+  // so the scroll position is put back when they return.
+  const zoom = document.getElementById("zoom");
+  const controls = document.querySelector(".controls");
+  let lifted = [];
+  let y = 0;
+
+  function enlarge(el) {
+    if (zoom.open) return;
+    y = scrollY;
+    lifted = (el.tagName === "VIDEO" ? [controls, el] : [el]).map(m => [m, m.parentNode, m.nextSibling]);
+    zoom.append(...lifted.map(([m]) => m));
+    zoom.showModal();
+  }
+
+  document.querySelectorAll("figure img, figure video").forEach(el => {
+    el.tabIndex = 0;
+    el.addEventListener("click", () => enlarge(el));
+    el.addEventListener("keydown", e => { if (e.key === "Enter") enlarge(el); });
+  });
+  zoom.addEventListener("click", e => { if (!e.target.closest(".controls")) zoom.close(); });
+  zoom.addEventListener("close", () => {
+    lifted.forEach(([m, parent, next]) => parent.insertBefore(m, next));
+    scrollTo(0, y);
   });
 </script>
 </body>
